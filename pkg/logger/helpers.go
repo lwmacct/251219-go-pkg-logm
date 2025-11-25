@@ -3,6 +3,7 @@ package logger
 import (
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 // FormatBytes 格式化字节数为人类可读格式
@@ -74,4 +75,105 @@ func Warn(msg string, attrs ...any) {
 // Error 结构化错误日志的快捷方式
 func Error(msg string, attrs ...any) {
 	slog.Error(msg, attrs...)
+}
+
+// 上海时区固定偏移（UTC+8），用于 time.LoadLocation 失败时的后备方案
+var shanghaiTimezone = time.FixedZone("CST", 8*3600)
+
+// loadTimezone 加载时区，支持以下格式：
+//   - IANA 时区名称: "Asia/Shanghai", "America/New_York"
+//   - 固定偏移: "+08:00", "-05:00", "+0800"
+//
+// 如果加载失败或为空，默认返回上海时区 (UTC+8)
+func loadTimezone(timezone string) *time.Location {
+	if timezone == "" {
+		timezone = "Asia/Shanghai"
+	}
+
+	// 首先尝试 time.LoadLocation（依赖系统时区数据）
+	if loc, err := time.LoadLocation(timezone); err == nil {
+		return loc
+	}
+
+	// 尝试解析固定偏移格式（如 "+08:00", "-05:00", "+0800"）
+	if loc := parseFixedOffset(timezone); loc != nil {
+		return loc
+	}
+
+	// 对于已知的时区名称，使用固定偏移作为后备
+	if loc := knownTimezoneOffset(timezone); loc != nil {
+		return loc
+	}
+
+	// 最终后备：上海时区
+	return shanghaiTimezone
+}
+
+// parseFixedOffset 解析固定偏移格式的时区字符串
+// 支持格式: "+08:00", "-05:00", "+0800", "-0500"
+func parseFixedOffset(s string) *time.Location {
+	if len(s) < 5 {
+		return nil
+	}
+
+	sign := 1
+	if s[0] == '-' {
+		sign = -1
+		s = s[1:]
+	} else if s[0] == '+' {
+		s = s[1:]
+	} else {
+		return nil
+	}
+
+	var hours, minutes int
+
+	// 解析 "08:00" 或 "0800" 格式
+	if len(s) == 5 && s[2] == ':' {
+		// "08:00" 格式
+		hours = int(s[0]-'0')*10 + int(s[1]-'0')
+		minutes = int(s[3]-'0')*10 + int(s[4]-'0')
+	} else if len(s) == 4 {
+		// "0800" 格式
+		hours = int(s[0]-'0')*10 + int(s[1]-'0')
+		minutes = int(s[2]-'0')*10 + int(s[3]-'0')
+	} else {
+		return nil
+	}
+
+	if hours > 14 || minutes > 59 {
+		return nil
+	}
+
+	offset := sign * (hours*3600 + minutes*60)
+	name := fmt.Sprintf("UTC%+03d:%02d", sign*hours, minutes)
+	return time.FixedZone(name, offset)
+}
+
+// knownTimezoneOffset 返回已知时区的固定偏移
+// 当系统没有时区数据库时，提供常用时区的后备方案
+func knownTimezoneOffset(timezone string) *time.Location {
+	offsets := map[string]int{
+		// 亚洲
+		"Asia/Shanghai":    8 * 3600,
+		"Asia/Hong_Kong":   8 * 3600,
+		"Asia/Taipei":      8 * 3600,
+		"Asia/Singapore":   8 * 3600,
+		"Asia/Tokyo":       9 * 3600,
+		"Asia/Seoul":       9 * 3600,
+		// 欧洲（标准时间，不考虑夏令时）
+		"Europe/London":    0,
+		"Europe/Paris":     1 * 3600,
+		"Europe/Berlin":    1 * 3600,
+		// 美洲（标准时间）
+		"America/New_York":    -5 * 3600,
+		"America/Los_Angeles": -8 * 3600,
+		// UTC
+		"UTC": 0,
+	}
+
+	if offset, ok := offsets[timezone]; ok {
+		return time.FixedZone(timezone, offset)
+	}
+	return nil
 }

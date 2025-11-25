@@ -25,8 +25,10 @@ type Config struct {
 	Output string
 	// AddSource 是否添加源代码位置信息
 	AddSource bool
-	// TimeFormat 时间格式: rfc3339, rfc3339ms, unix, unixms (默认 rfc3339)
+	// TimeFormat 时间格式: datetime (默认), rfc3339, rfc3339ms, unix, unixms
 	TimeFormat string
+	// Timezone 时区名称，例如 "Asia/Shanghai"，默认为 "Asia/Shanghai"
+	Timezone string
 }
 
 // DefaultConfig 返回默认配置
@@ -36,7 +38,8 @@ func DefaultConfig() *Config {
 		Format:     "text",
 		Output:     "stdout",
 		AddSource:  false,
-		TimeFormat: "rfc3339", // 默认使用秒精度（单进程顺序写入无需毫秒）
+		TimeFormat: "datetime", // 默认格式: 2006-01-02 15:04:05
+		Timezone:   "Asia/Shanghai",
 	}
 }
 
@@ -139,7 +142,7 @@ func createHandler(cfg *Config, writer io.Writer) slog.Handler {
 
 	switch cfg.Format {
 	case "json":
-		return newJSONHandler(writer, opts, cfg.TimeFormat)
+		return newJSONHandler(writer, opts, cfg.TimeFormat, cfg.Timezone)
 	case "color", "colored":
 		colorConfig := &ColoredHandlerConfig{
 			Level:        level,
@@ -149,6 +152,7 @@ func createHandler(cfg *Config, writer io.Writer) slog.Handler {
 			PriorityKeys: []string{"time", "level", "msg"},
 			TrailingKeys: []string{"source"},
 			TimeFormat:   cfg.TimeFormat,
+			Timezone:     cfg.Timezone,
 		}
 		return NewColoredHandler(writer, colorConfig)
 	default: // text

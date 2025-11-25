@@ -20,21 +20,27 @@ type customJSONHandler struct {
 	mu         sync.Mutex
 	groups     []string       // 当前 group 路径
 	preAttrs   map[string]any // 预计算的属性（已考虑 group 嵌套）
+	location   *time.Location // 缓存的时区
 }
 
 // newJSONHandler 创建自定义 JSON handler
-func newJSONHandler(w io.Writer, opts *slog.HandlerOptions, timeFormat string) *customJSONHandler {
+func newJSONHandler(w io.Writer, opts *slog.HandlerOptions, timeFormat string, timezone string) *customJSONHandler {
 	if opts == nil {
 		opts = &slog.HandlerOptions{}
 	}
 	if timeFormat == "" {
-		timeFormat = "rfc3339ms"
+		timeFormat = "datetime"
 	}
+
+	// 加载时区，默认使用上海时区 (UTC+8)
+	loc := loadTimezone(timezone)
+
 	return &customJSONHandler{
 		opts:       opts,
 		writer:     w,
 		timeFormat: timeFormat,
 		preAttrs:   make(map[string]any),
+		location:   loc,
 	}
 }
 
@@ -114,6 +120,7 @@ func (h *customJSONHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		timeFormat: h.timeFormat,
 		groups:     h.groups,
 		preAttrs:   newPreAttrs,
+		location:   h.location,
 	}
 }
 
@@ -139,11 +146,17 @@ func (h *customJSONHandler) WithGroup(name string) slog.Handler {
 		timeFormat: h.timeFormat,
 		groups:     newGroups,
 		preAttrs:   newPreAttrs,
+		location:   h.location,
 	}
 }
 
 // formatTime 根据配置格式化时间
 func (h *customJSONHandler) formatTime(t time.Time) interface{} {
+	// 转换到指定时区
+	if h.location != nil {
+		t = t.In(h.location)
+	}
+
 	switch h.timeFormat {
 	case "unix":
 		// Unix 时间戳（秒）
@@ -160,8 +173,8 @@ func (h *customJSONHandler) formatTime(t time.Time) interface{} {
 	case "rfc3339ms":
 		// RFC3339 格式（毫秒精度）
 		return t.Format("2006-01-02T15:04:05.000Z07:00")
-	case "datetime":
-		// 简单的日期时间格式
+	case "datetime", "":
+		// 默认：简单的日期时间格式（秒精度）
 		return t.Format("2006-01-02 15:04:05")
 	case "unixfloat":
 		// Unix 时间戳（浮点数，秒+小数）
@@ -169,8 +182,8 @@ func (h *customJSONHandler) formatTime(t time.Time) interface{} {
 		nanoRemainder := t.Nanosecond()
 		return strconv.FormatFloat(float64(unixSec)+float64(nanoRemainder)/1e9, 'f', 3, 64)
 	default:
-		// 默认使用 RFC3339 毫秒精度
-		return t.Format("2006-01-02T15:04:05.000Z07:00")
+		// 默认使用日期时间格式
+		return t.Format("2006-01-02 15:04:05")
 	}
 }
 

@@ -186,7 +186,7 @@ func TestJSONHandlerAddSource(t *testing.T) {
 	var buf bytes.Buffer
 	handler := newJSONHandler(&buf, &slog.HandlerOptions{
 		AddSource: true,
-	}, "rfc3339ms")
+	}, "rfc3339ms", "")
 
 	logger := slog.New(handler)
 	logger.Info("test message")
@@ -208,7 +208,7 @@ func TestJSONHandlerAddSource(t *testing.T) {
 
 func TestJSONHandlerWithGroup(t *testing.T) {
 	var buf bytes.Buffer
-	handler := newJSONHandler(&buf, nil, "rfc3339ms")
+	handler := newJSONHandler(&buf, nil, "rfc3339ms", "")
 
 	// 创建带有 group 的 logger
 	logger := slog.New(handler).WithGroup("request")
@@ -227,7 +227,7 @@ func TestJSONHandlerWithGroup(t *testing.T) {
 
 func TestJSONHandlerNestedGroups(t *testing.T) {
 	var buf bytes.Buffer
-	handler := newJSONHandler(&buf, nil, "rfc3339ms")
+	handler := newJSONHandler(&buf, nil, "rfc3339ms", "")
 
 	// 创建多层嵌套的 group
 	logger := slog.New(handler).
@@ -429,7 +429,7 @@ func TestJSONHandlerTimeFormats(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.format, func(t *testing.T) {
 			var buf bytes.Buffer
-			handler := newJSONHandler(&buf, nil, tt.format)
+			handler := newJSONHandler(&buf, nil, tt.format, "")
 			logger := slog.New(handler)
 
 			logger.Info("test")
@@ -588,8 +588,11 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.AddSource != false {
 		t.Errorf("default AddSource should be false")
 	}
-	if cfg.TimeFormat != "rfc3339" {
-		t.Errorf("default TimeFormat should be rfc3339, got %s", cfg.TimeFormat)
+	if cfg.TimeFormat != "datetime" {
+		t.Errorf("default TimeFormat should be datetime, got %s", cfg.TimeFormat)
+	}
+	if cfg.Timezone != "Asia/Shanghai" {
+		t.Errorf("default Timezone should be Asia/Shanghai, got %s", cfg.Timezone)
 	}
 }
 

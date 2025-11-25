@@ -53,6 +53,8 @@ type ColoredHandlerConfig struct {
 	TrailingKeys []string
 	// TimeFormat 时间格式: datetime (默认), rfc3339, rfc3339ms, time, timems
 	TimeFormat string
+	// Timezone 时区名称，例如 "Asia/Shanghai"
+	Timezone string
 }
 
 // DefaultColoredConfig 返回默认配置
@@ -69,11 +71,12 @@ func DefaultColoredConfig() *ColoredHandlerConfig {
 
 // coloredHandler 支持彩色输出和字段排序的 handler
 type coloredHandler struct {
-	writer io.Writer
-	config *ColoredHandlerConfig
-	groups []string
-	attrs  []slog.Attr
-	mu     sync.Mutex
+	writer   io.Writer
+	config   *ColoredHandlerConfig
+	groups   []string
+	attrs    []slog.Attr
+	mu       sync.Mutex
+	location *time.Location // 缓存的时区
 }
 
 // NewColoredHandler 创建彩色 handler
@@ -81,9 +84,14 @@ func NewColoredHandler(w io.Writer, config *ColoredHandlerConfig) *coloredHandle
 	if config == nil {
 		config = DefaultColoredConfig()
 	}
+
+	// 加载时区，默认使用上海时区 (UTC+8)
+	loc := loadTimezone(config.Timezone)
+
 	return &coloredHandler{
-		writer: w,
-		config: config,
+		writer:   w,
+		config:   config,
+		location: loc,
 	}
 }
 
@@ -152,25 +160,32 @@ func (h *coloredHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	}
 
 	return &coloredHandler{
-		writer: h.writer,
-		config: h.config,
-		groups: h.groups,
-		attrs:  newAttrs,
+		writer:   h.writer,
+		config:   h.config,
+		groups:   h.groups,
+		attrs:    newAttrs,
+		location: h.location,
 	}
 }
 
 // WithGroup 实现 slog.Handler 接口
 func (h *coloredHandler) WithGroup(name string) slog.Handler {
 	return &coloredHandler{
-		writer: h.writer,
-		config: h.config,
-		groups: append(slices.Clip(h.groups), name),
-		attrs:  h.attrs,
+		writer:   h.writer,
+		config:   h.config,
+		groups:   append(slices.Clip(h.groups), name),
+		attrs:    h.attrs,
+		location: h.location,
 	}
 }
 
 // getFormattedTime 根据配置格式化时间
 func (h *coloredHandler) getFormattedTime(t time.Time) string {
+	// 转换到指定时区
+	if h.location != nil {
+		t = t.In(h.location)
+	}
+
 	switch h.config.TimeFormat {
 	case "rfc3339":
 		return t.Format(time.RFC3339)
