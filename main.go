@@ -9,57 +9,100 @@ import (
 )
 
 func main() {
-	// 示例 1: 使用默认配置（datetime 格式 + Asia/Shanghai 时区）
-	demoDefaultConfig()
+	// 示例 1: InitAuto - 自动检测环境（推荐）
+	demoInitAuto()
 
-	// 示例 2: 使用彩色输出
+	// 示例 2: InitEnv - 从环境变量初始化
+	demoInitEnv()
+
+	// 示例 3: InitCfg - 手动配置
+	demoInitCfg()
+
+	// 示例 4: 彩色输出
 	demoColoredOutput()
 
-	// 示例 3: 使用 JSON 输出
+	// 示例 5: JSON 输出
 	demoJSONOutput()
 
-	// 示例 4: 自定义时间格式和时区
-	demoCustomTimeFormat()
+	// 示例 6: 时间格式
+	demoTimeFormats()
 
-	// 示例 5: Context 集成
+	// 示例 7: Context 集成
 	demoContextIntegration()
 
-	// 示例 6: 结构化日志与数据平铺
+	// 示例 8: 结构化日志与数据平铺
 	demoStructuredLogging()
 }
 
-// demoDefaultConfig 演示默认配置
-func demoDefaultConfig() {
-	printSection("默认配置 (datetime + Asia/Shanghai)")
+// demoInitAuto 演示自动检测环境初始化
+func demoInitAuto() {
+	printSection("InitAuto - 自动检测环境")
 
-	// 默认配置：TimeFormat="datetime", Timezone="Asia/Shanghai"
-	if err := logger.Init(nil); err != nil {
+	// IS_SANDBOX=1 时使用开发配置，否则使用生产配置
+	// 开发: color + DEBUG + source + time
+	// 生产: json + INFO + no source + datetime
+	if err := logger.InitAuto(); err != nil {
+		panic(err)
+	}
+	defer logger.Close()
+
+	slog.Info("自动检测环境", "is_sandbox", os.Getenv("IS_SANDBOX"))
+	slog.Debug("调试信息（开发环境可见）")
+}
+
+// demoInitEnv 演示从环境变量初始化
+func demoInitEnv() {
+	printSection("InitEnv - 从环境变量初始化")
+
+	// 支持的环境变量：
+	// - LOG_LEVEL: DEBUG, INFO, WARN, ERROR（默认 INFO）
+	// - LOG_FORMAT: json, text, color（默认 color）
+	// - LOG_OUTPUT: stdout, stderr, 文件路径（默认 stdout）
+	// - LOG_ADD_SOURCE: true, false（默认 true）
+	// - LOG_TIME_FORMAT: datetime, time, rfc3339, rfc3339ms（默认 datetime）
+	if err := logger.InitEnv(); err != nil {
 		panic(err)
 	}
 
-	logger.Info("服务启动", "port", 8080)
-	logger.Debug("调试信息（不会显示，默认级别为 INFO）")
-	logger.Warn("警告信息", "remaining", 10)
+	slog.Info("从环境变量初始化", "format", "使用固定默认值")
 }
 
-// demoColoredOutput 演示彩色输出
-func demoColoredOutput() {
-	printSection("彩色输出 (color)")
+// demoInitCfg 演示手动配置初始化
+func demoInitCfg() {
+	printSection("InitCfg - 手动配置")
 
 	cfg := &logger.Config{
 		Level:      "DEBUG",
 		Format:     "color",
+		Output:     "stdout",
+		AddSource:  true,
 		TimeFormat: "datetime",
 		Timezone:   "Asia/Shanghai",
 	}
-	if err := logger.Init(cfg); err != nil {
+	if err := logger.InitCfg(cfg); err != nil {
 		panic(err)
 	}
 
-	logger.Debug("调试信息", "module", "auth")
-	logger.Info("用户登录", "user_id", 12345, "ip", "192.168.1.100")
-	logger.Warn("连接池即将耗尽", "active", 95, "max", 100)
-	logger.Error("数据库连接失败", "error", "connection refused", "host", "db.example.com")
+	slog.Info("手动配置初始化", "level", cfg.Level, "format", cfg.Format)
+}
+
+// demoColoredOutput 演示彩色输出
+func demoColoredOutput() {
+	printSection("彩色输出")
+
+	cfg := &logger.Config{
+		Level:      "DEBUG",
+		Format:     "color",
+		TimeFormat: "time", // 简洁时间格式 15:04:05
+	}
+	if err := logger.InitCfg(cfg); err != nil {
+		panic(err)
+	}
+
+	slog.Debug("调试信息", "module", "auth")
+	slog.Info("用户登录", "user_id", 12345, "ip", "192.168.1.100")
+	slog.Warn("连接池即将耗尽", "active", 95, "max", 100)
+	slog.Error("数据库连接失败", "error", "connection refused")
 }
 
 // demoJSONOutput 演示 JSON 输出
@@ -70,45 +113,41 @@ func demoJSONOutput() {
 		Level:      "INFO",
 		Format:     "json",
 		TimeFormat: "datetime",
-		Timezone:   "Asia/Shanghai",
 	}
-	if err := logger.Init(cfg); err != nil {
+	if err := logger.InitCfg(cfg); err != nil {
 		panic(err)
 	}
 
-	logger.Info("API 请求", "method", "POST", "path", "/api/users", "duration_ms", 42)
+	slog.Info("API 请求", "method", "POST", "path", "/api/users", "duration_ms", 42)
 }
 
-// demoCustomTimeFormat 演示自定义时间格式
-func demoCustomTimeFormat() {
-	printSection("自定义时间格式")
+// demoTimeFormats 演示时间格式
+func demoTimeFormats() {
+	printSection("时间格式")
 
-	// 使用 RFC3339 格式
-	cfg := &logger.Config{
-		Level:      "INFO",
-		Format:     "color",
-		TimeFormat: "rfc3339",
-		Timezone:   "Asia/Shanghai",
+	formats := []struct {
+		name   string
+		format string
+	}{
+		{"time", "time"},           // 15:04:05
+		{"timems", "timems"},       // 15:04:05.000
+		{"datetime", "datetime"},   // 2006-01-02 15:04:05
+		{"rfc3339", "rfc3339"},     // 2006-01-02T15:04:05+08:00
+		{"rfc3339ms", "rfc3339ms"}, // 2006-01-02T15:04:05.000+08:00
+		{"custom", "01-02 15:04"},  // 自定义格式
 	}
-	if err := logger.Init(cfg); err != nil {
-		panic(err)
-	}
-	logger.Info("RFC3339 格式")
 
-	// 使用自定义 Go 时间格式字符串
-	cfg.TimeFormat = "2006/01/02 15:04:05"
-	if err := logger.Init(cfg); err != nil {
-		panic(err)
+	for _, f := range formats {
+		cfg := &logger.Config{
+			Level:      "INFO",
+			Format:     "color",
+			TimeFormat: f.format,
+		}
+		if err := logger.InitCfg(cfg); err != nil {
+			panic(err)
+		}
+		slog.Info("时间格式示例", "format", f.name)
 	}
-	logger.Info("自定义格式 (yyyy/mm/dd)")
-
-	// 使用固定偏移时区
-	cfg.TimeFormat = "datetime"
-	cfg.Timezone = "+08:00"
-	if err := logger.Init(cfg); err != nil {
-		panic(err)
-	}
-	logger.Info("固定偏移时区 (+08:00)")
 }
 
 // demoContextIntegration 演示 Context 集成
@@ -119,7 +158,7 @@ func demoContextIntegration() {
 		Level:  "INFO",
 		Format: "color",
 	}
-	if err := logger.Init(cfg); err != nil {
+	if err := logger.InitCfg(cfg); err != nil {
 		panic(err)
 	}
 
@@ -140,21 +179,21 @@ func demoStructuredLogging() {
 		Level:  "INFO",
 		Format: "color",
 	}
-	if err := logger.Init(cfg); err != nil {
+	if err := logger.InitCfg(cfg); err != nil {
 		panic(err)
 	}
 
 	// JSON 字符串自动平铺
-	logger.Info("收到请求体", "body", `{"user":"alice","age":30}`)
+	slog.Info("收到请求体", "body", `{"user":"alice","age":30}`)
 
 	// map 自动平铺
-	logger.Info("配置信息", "config", map[string]any{
+	slog.Info("配置信息", "config", map[string]any{
 		"debug":   true,
 		"timeout": 30,
 	})
 
 	// slog.Group 分组
-	logger.Info("HTTP 请求",
+	slog.Info("HTTP 请求",
 		slog.Group("request",
 			"method", "GET",
 			"path", "/api/users",
