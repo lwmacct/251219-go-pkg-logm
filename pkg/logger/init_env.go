@@ -1,9 +1,45 @@
 package logger
 
 import (
+	"io"
+	"log/slog"
 	"os"
 	"strings"
 )
+
+// globalCloser 保存全局 logger 的可关闭资源
+var globalCloser io.Closer
+
+// InitCfg 使用配置初始化全局日志系统
+//
+// 这个函数应该在应用启动时调用一次，用于配置全局的 slog.Default() logger
+// 如果输出到文件，应在程序退出时调用 Close() 关闭文件
+//
+// 使用示例：
+//
+//	func main() {
+//	    if err := logger.InitCfg(&logger.Config{
+//	        Level:  "DEBUG",
+//	        Format: "color",
+//	    }); err != nil {
+//	        log.Fatalf("初始化日志失败: %v", err)
+//	    }
+//	    defer logger.Close()
+//	    // ...
+//	}
+func InitCfg(cfg *Config) error {
+	logger, closer, err := NewWithCloser(cfg)
+	if err != nil {
+		return err
+	}
+	// 关闭之前的 closer（忽略错误，因为我们正在替换它）
+	if globalCloser != nil {
+		_ = globalCloser.Close()
+	}
+	globalCloser = closer
+	slog.SetDefault(logger)
+	return nil
+}
 
 // InitEnv 从环境变量初始化全局日志系统
 //
@@ -16,7 +52,7 @@ import (
 //   - LOG_ADD_SOURCE: 是否添加源代码位置 (true, false)，默认 true
 //   - LOG_TIME_FORMAT: 时间格式，默认 datetime
 //
-// 时间格式可选值：datetime, rfc3339, rfc3339ms, unix, unixms, unixfloat
+// 时间格式可选值：datetime, rfc3339, rfc3339ms, time, timems, 或自定义格式
 //
 // 使用示例：
 //
@@ -30,30 +66,13 @@ import (
 func InitEnv() error {
 	cfg := &Config{
 		Level:      getEnv("LOG_LEVEL", "INFO"),
-		Format:     getEnv("LOG_FORMAT", "color"), // 默认使用彩色输出
+		Format:     getEnv("LOG_FORMAT", "color"),
 		Output:     getEnv("LOG_OUTPUT", "stdout"),
-		AddSource:  getEnvBool("LOG_ADD_SOURCE", true), // 默认启用源代码位置
+		AddSource:  getEnvBool("LOG_ADD_SOURCE", true),
 		TimeFormat: getEnv("LOG_TIME_FORMAT", "datetime"),
 	}
 
-	return Init(cfg)
-}
-
-// getEnv 获取环境变量，如果不存在则返回默认值
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getEnvBool 获取布尔类型的环境变量
-func getEnvBool(key string, defaultValue bool) bool {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	return strings.ToLower(value) == "true" || value == "1"
+	return InitCfg(cfg)
 }
 
 // InitAuto 根据环境自动选择配置初始化日志系统
@@ -106,11 +125,40 @@ func InitAuto() error {
 		TimeFormat: getEnv("LOG_TIME_FORMAT", defaultTimeFormat),
 	}
 
-	return Init(cfg)
+	return InitCfg(cfg)
+}
+
+// Close 关闭全局 logger 的资源（如文件）
+//
+// 应在程序退出时调用，确保日志文件正确关闭
+func Close() error {
+	if globalCloser != nil {
+		err := globalCloser.Close()
+		globalCloser = nil
+		return err
+	}
+	return nil
 }
 
 // isSandboxEnv 检测是否为沙盒/开发环境
 func isSandboxEnv() bool {
 	value := os.Getenv("IS_SANDBOX")
 	return value == "1" || strings.ToLower(value) == "true"
+}
+
+// getEnv 获取环境变量，如果不存在则返回默认值
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// getEnvBool 获取布尔类型的环境变量
+func getEnvBool(key string, defaultValue bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return strings.ToLower(value) == "true" || value == "1"
 }

@@ -31,14 +31,14 @@ type Config struct {
 	Timezone string
 }
 
-// DefaultConfig 返回默认配置
-func DefaultConfig() *Config {
+// defaultConfig 返回默认配置（内部使用）
+func defaultConfig() *Config {
 	return &Config{
 		Level:      "INFO",
 		Format:     "text",
 		Output:     "stdout",
 		AddSource:  false,
-		TimeFormat: "datetime", // 默认格式: 2006-01-02 15:04:05
+		TimeFormat: "datetime",
 		Timezone:   "Asia/Shanghai",
 	}
 }
@@ -67,39 +67,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// globalCloser 保存全局 logger 的可关闭资源
-var globalCloser io.Closer
-
-// Init 初始化全局日志系统
-//
-// 这个函数应该在应用启动时调用一次，用于配置全局的 slog.Default() logger
-// 如果输出到文件，应在程序退出时调用 Close() 关闭文件
-func Init(cfg *Config) error {
-	logger, closer, err := NewWithCloser(cfg)
-	if err != nil {
-		return err
-	}
-	// 关闭之前的 closer（忽略错误，因为我们正在替换它）
-	if globalCloser != nil {
-		_ = globalCloser.Close()
-	}
-	globalCloser = closer
-	slog.SetDefault(logger)
-	return nil
-}
-
-// Close 关闭全局 logger 的资源（如文件）
-//
-// 应在程序退出时调用，确保日志文件正确关闭
-func Close() error {
-	if globalCloser != nil {
-		err := globalCloser.Close()
-		globalCloser = nil
-		return err
-	}
-	return nil
-}
-
 // New 创建新的 logger 实例
 //
 // 用于需要独立配置的场景，例如为特定模块创建专用 logger
@@ -115,7 +82,7 @@ func New(cfg *Config) (*slog.Logger, error) {
 // 如果输出到 stdout/stderr，closer 为 nil
 func NewWithCloser(cfg *Config) (*slog.Logger, io.Closer, error) {
 	if cfg == nil {
-		cfg = DefaultConfig()
+		cfg = defaultConfig()
 	}
 
 	// 验证配置

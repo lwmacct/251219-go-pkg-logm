@@ -19,7 +19,7 @@ func TestInit(t *testing.T) {
 	}{
 		{
 			name:    "default config",
-			config:  DefaultConfig(),
+			config:  defaultConfig(),
 			wantErr: false,
 		},
 		{
@@ -44,7 +44,7 @@ func TestInit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := Init(tt.config)
+			err := InitCfg(tt.config)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -363,7 +363,7 @@ func TestNewWithCloser(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	err := Init(&Config{
+	err := InitCfg(&Config{
 		Level:  "INFO",
 		Format: "text",
 		Output: "stdout",
@@ -447,7 +447,7 @@ func TestColoredHandlerNonJSONString(t *testing.T) {
 }
 
 func TestDefaultConfig(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := defaultConfig()
 
 	assert.Equal(t, "INFO", cfg.Level)
 	assert.Equal(t, "text", cfg.Format)
@@ -567,7 +567,7 @@ func TestConfigValidate(t *testing.T) {
 	}{
 		{
 			name:    "valid default config",
-			config:  DefaultConfig(),
+			config:  defaultConfig(),
 			wantErr: false,
 		},
 		{
@@ -652,7 +652,7 @@ func TestConfigValidate(t *testing.T) {
 }
 
 func TestInitWithInvalidConfig(t *testing.T) {
-	err := Init(&Config{
+	err := InitCfg(&Config{
 		Level:  "INFO",
 		Format: "invalid_format",
 	})
