@@ -55,3 +55,62 @@ func getEnvBool(key string, defaultValue bool) bool {
 	}
 	return strings.ToLower(value) == "true" || value == "1"
 }
+
+// InitAuto 根据环境自动选择配置初始化日志系统
+//
+// 通过 IS_SANDBOX 环境变量自动检测运行环境，并选择合适的默认配置：
+//   - 开发环境 (IS_SANDBOX=1): 彩色输出、DEBUG 级别、显示源码位置、简洁时间格式
+//   - 生产环境: JSON 格式、INFO 级别、无源码位置、完整时间格式
+//
+// 所有配置仍可通过对应的环境变量覆盖。
+//
+// 默认值对比：
+//
+//	| 配置项         | 开发环境 (IS_SANDBOX=1) | 生产环境       |
+//	|----------------|-------------------------|----------------|
+//	| LOG_LEVEL      | DEBUG                   | INFO           |
+//	| LOG_FORMAT     | color                   | json           |
+//	| LOG_ADD_SOURCE | true                    | false          |
+//	| LOG_TIME_FORMAT| time (15:04:05)         | datetime       |
+//
+// 使用示例：
+//
+//	func main() {
+//	    if err := logger.InitAuto(); err != nil {
+//	        log.Fatalf("初始化日志失败: %v", err)
+//	    }
+//	    defer logger.Close()
+//	    // ...
+//	}
+func InitAuto() error {
+	isSandbox := isSandboxEnv()
+
+	// 根据环境选择默认值
+	defaultLevel := "INFO"
+	defaultFormat := "json"
+	defaultAddSource := false
+	defaultTimeFormat := "datetime"
+
+	if isSandbox {
+		defaultLevel = "DEBUG"
+		defaultFormat = "color"
+		defaultAddSource = true
+		defaultTimeFormat = "time"
+	}
+
+	cfg := &Config{
+		Level:      getEnv("LOG_LEVEL", defaultLevel),
+		Format:     getEnv("LOG_FORMAT", defaultFormat),
+		Output:     getEnv("LOG_OUTPUT", "stdout"),
+		AddSource:  getEnvBool("LOG_ADD_SOURCE", defaultAddSource),
+		TimeFormat: getEnv("LOG_TIME_FORMAT", defaultTimeFormat),
+	}
+
+	return Init(cfg)
+}
+
+// isSandboxEnv 检测是否为沙盒/开发环境
+func isSandboxEnv() bool {
+	value := os.Getenv("IS_SANDBOX")
+	return value == "1" || strings.ToLower(value) == "true"
+}
