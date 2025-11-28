@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// InitFromEnv 从环境变量初始化全局日志系统
+// InitEnv 从环境变量初始化全局日志系统
 //
 // 这是初始化日志的便捷方式，适用于通过环境变量配置应用的场景（如容器化部署）。
 //
@@ -21,13 +21,13 @@ import (
 // 使用示例：
 //
 //	func main() {
-//	    if err := logger.InitFromEnv(); err != nil {
+//	    if err := logger.InitEnv(); err != nil {
 //	        log.Fatalf("初始化日志失败: %v", err)
 //	    }
 //	    defer logger.Close()
 //	    // ...
 //	}
-func InitFromEnv() error {
+func InitEnv() error {
 	cfg := &Config{
 		Level:      getEnv("LOG_LEVEL", "INFO"),
 		Format:     getEnv("LOG_FORMAT", "color"), // 默认使用彩色输出
