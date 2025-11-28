@@ -842,6 +842,82 @@ func TestInitWithInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestTextHandlerTimeFormat(t *testing.T) {
+	var buf bytes.Buffer
+	handler := newTextHandler(&buf, nil, "datetime", "Asia/Shanghai")
+	logger := slog.New(handler)
+
+	logger.Info("test message")
+
+	output := buf.String()
+
+	// 验证时间格式为 "YYYY-MM-DD HH:MM:SS"（不带 T 和时区后缀）
+	// 例如：time="2025-11-29 00:52:02"
+	if !strings.Contains(output, `time="20`) {
+		t.Errorf("should contain time field: %s", output)
+	}
+	// 不应该包含 RFC3339 格式的 T 分隔符
+	if strings.Contains(output, `time="20`) && strings.Contains(output, "T") && !strings.Contains(output, `msg="`) {
+		// 检查 time 字段中是否有 T（RFC3339 格式）
+		// 注意：消息内容可能包含 T，所以要精确匹配 time 字段
+		idx := strings.Index(output, `time="`)
+		if idx >= 0 {
+			timeField := output[idx : idx+30] // 取足够长度来检查
+			if strings.Contains(timeField, "T") {
+				t.Errorf("datetime format should not contain T separator: %s", output)
+			}
+		}
+	}
+}
+
+func TestTextHandlerTimeFormats(t *testing.T) {
+	tests := []struct {
+		format      string
+		contains    string
+		notContains string
+	}{
+		{"datetime", "2025-", "T"}, // 包含日期格式，不包含 T
+		{"rfc3339", "T", ""},       // 包含 T 分隔符
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			var buf bytes.Buffer
+			handler := newTextHandler(&buf, nil, tt.format, "")
+			logger := slog.New(handler)
+
+			logger.Info("test")
+
+			output := buf.String()
+			t.Logf("Output: %s", output)
+
+			// 验证 time 字段存在
+			if !strings.Contains(output, "time=") {
+				t.Errorf("should contain time field: %s", output)
+				return
+			}
+
+			// datetime 格式：time="2025-11-29 00:52:02"（带引号，因为有空格）
+			// rfc3339 格式：time=2025-11-29T00:52:02+08:00（无引号）
+			if tt.contains != "" && !strings.Contains(output, tt.contains) {
+				t.Errorf("output should contain %q: %s", tt.contains, output)
+			}
+			if tt.notContains != "" {
+				// 检查 time 字段中是否包含不期望的字符
+				idx := strings.Index(output, "time=")
+				endIdx := strings.Index(output[idx:], " level=")
+				if endIdx < 0 {
+					endIdx = len(output) - idx
+				}
+				timeField := output[idx : idx+endIdx]
+				if strings.Contains(timeField, tt.notContains) {
+					t.Errorf("time field should not contain %q: %s", tt.notContains, timeField)
+				}
+			}
+		})
+	}
+}
+
 func TestClipWorkspacePath(t *testing.T) {
 	tests := []struct {
 		name     string

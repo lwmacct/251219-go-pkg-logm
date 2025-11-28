@@ -156,7 +156,7 @@ func createHandler(cfg *Config, writer io.Writer) slog.Handler {
 		}
 		return NewColoredHandler(writer, colorConfig)
 	default: // text
-		return slog.NewTextHandler(writer, opts)
+		return newTextHandler(writer, opts, cfg.TimeFormat, cfg.Timezone)
 	}
 }
 
