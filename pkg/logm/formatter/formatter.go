@@ -30,8 +30,10 @@ type Formatter interface {
 type Options struct {
 	TimeFormat  string
 	Location    *time.Location
-	SourceClip  string // Source 路径裁剪前缀 (如 "/workspace/")
-	SourceDepth int    // Source 路径保留层数 (默认 3)
+	SourceClip  string       // Source 路径裁剪前缀 (如 "/workspace/")
+	SourceDepth int          // Source 路径保留层数 (默认 3)
+	ColorScheme *ColorScheme // 颜色配置方案
+	EnableColor bool         // 启用颜色输出
 }
 
 // Option 选项函数
@@ -40,8 +42,10 @@ type Option func(*Options)
 // defaultOptions 返回默认选项
 func defaultOptions() *Options {
 	return &Options{
-		TimeFormat: "datetime",
-		Location:   time.Local,
+		TimeFormat:  "datetime",
+		Location:    time.Local,
+		ColorScheme: DefaultScheme(),
+		EnableColor: true,
 	}
 }
 
@@ -70,6 +74,20 @@ func WithSourceClip(prefix string) Option {
 func WithSourceDepth(depth int) Option {
 	return func(o *Options) {
 		o.SourceDepth = depth
+	}
+}
+
+// WithColor 启用/禁用颜色输出
+func WithColor(enable bool) Option {
+	return func(o *Options) {
+		o.EnableColor = enable
+	}
+}
+
+// WithColorScheme 设置颜色配置方案
+func WithColorScheme(scheme *ColorScheme) Option {
+	return func(o *Options) {
+		o.ColorScheme = scheme
 	}
 }
 

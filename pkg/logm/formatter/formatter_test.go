@@ -513,7 +513,7 @@ func TestColorJSONFormatter_LevelColors(t *testing.T) {
 }
 
 func TestColorJSONFormatter_DisableColor(t *testing.T) {
-	f := ColorJSON().DisableColor()
+	f := ColorJSON(WithColor(false))
 	r := newTestRecord("test")
 
 	data, err := f.Format(r)

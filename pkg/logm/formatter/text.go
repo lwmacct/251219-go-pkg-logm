@@ -38,7 +38,7 @@ func (f *TextFormatter) Format(r *Record) ([]byte, error) {
 
 	// 级别
 	buf.WriteString(" level=")
-	buf.WriteString(levelString(r.Level))
+	buf.WriteString(LevelName(r.Level))
 
 	// 消息
 	buf.WriteString(" msg=")

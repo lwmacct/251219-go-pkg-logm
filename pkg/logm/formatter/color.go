@@ -8,33 +8,16 @@ import (
 	"strings"
 )
 
-// ANSI 颜色代码
-const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
-	colorPurple = "\033[35m"
-	colorCyan   = "\033[36m"
-	colorGray   = "\033[90m"
-	colorBold   = "\033[1m"
-)
-
 // ColorTextFormatter 彩色格式化器。
 //
 // 输出带 ANSI 颜色的日志，适合终端开发调试。
 // 支持 JSON 字符串自动展开和嵌套结构平铺。
 type ColorTextFormatter struct {
 	opts         *Options
-	enableColor  bool
 	flattenJSON  bool
 	priorityKeys []string
 	trailingKeys []string
 }
-
-// ColorOption ColorTextFormatter 特有选项
-type ColorOption func(*ColorTextFormatter)
 
 // ColorText 创建彩色格式化器。
 func ColorText(opts ...Option) *ColorTextFormatter {
@@ -44,24 +27,9 @@ func ColorText(opts ...Option) *ColorTextFormatter {
 	}
 	return &ColorTextFormatter{
 		opts:         o,
-		enableColor:  true,
 		flattenJSON:  true,
 		priorityKeys: []string{"time", "level", "msg"},
 		trailingKeys: []string{"source"},
-	}
-}
-
-// WithColor 启用/禁用颜色
-func WithColor(enable bool) ColorOption {
-	return func(f *ColorTextFormatter) {
-		f.enableColor = enable
-	}
-}
-
-// WithFlattenJSON 启用/禁用 JSON 平铺
-func WithFlattenJSON(enable bool) ColorOption {
-	return func(f *ColorTextFormatter) {
-		f.flattenJSON = enable
 	}
 }
 
@@ -75,15 +43,15 @@ func (f *ColorTextFormatter) Format(r *Record) ([]byte, error) {
 	if f.opts.Location != nil {
 		t = t.In(f.opts.Location)
 	}
-	f.writeColored(buf, colorGray, formatTime(t, f.opts.TimeFormat))
+	f.writeColored(buf, f.opts.ColorScheme.Time, formatTime(t, f.opts.TimeFormat))
 	buf.WriteByte(' ')
 
 	// 级别（带颜色）
 	f.writeLevel(buf, r.Level)
 	buf.WriteByte(' ')
 
-	// 消息
-	f.writeColored(buf, colorBlue, r.Message)
+	// 消息（无色）
+	buf.WriteString(r.Message)
 
 	// 属性
 	f.writeAttrs(buf, r.Attrs, r.Groups)
@@ -91,7 +59,7 @@ func (f *ColorTextFormatter) Format(r *Record) ([]byte, error) {
 	// 源代码位置
 	if r.Source != nil {
 		buf.WriteByte(' ')
-		f.writeColored(buf, colorPurple, FormatSource(r.Source, f.opts))
+		f.writeColored(buf, f.opts.ColorScheme.Source, FormatSource(r.Source, f.opts))
 	}
 
 	buf.WriteByte('\n')
@@ -101,36 +69,27 @@ func (f *ColorTextFormatter) Format(r *Record) ([]byte, error) {
 
 // writeLevel 写入级别（带颜色）
 func (f *ColorTextFormatter) writeLevel(buf *bytes.Buffer, level slog.Level) {
-	var color, text string
-	switch {
-	case level < slog.LevelInfo:
-		color, text = colorCyan, "DEBUG"
-	case level < slog.LevelWarn:
-		color, text = colorGreen, "INFO"
-	case level < slog.LevelError:
-		color, text = colorYellow, "WARN"
-	default:
-		color, text = colorRed, "ERROR"
-	}
+	info := DefaultLevelInfo(level)
+	color := f.opts.ColorScheme.LevelColor(level)
 
-	if f.enableColor {
+	if f.opts.EnableColor {
 		buf.WriteString(color)
-		buf.WriteString(colorBold)
+		buf.WriteString(ColorBold)
 	}
-	buf.WriteString(text)
-	if f.enableColor {
-		buf.WriteString(colorReset)
+	buf.WriteString(info.Name)
+	if f.opts.EnableColor {
+		buf.WriteString(ColorReset)
 	}
 }
 
 // writeColored 写入带颜色的文本
 func (f *ColorTextFormatter) writeColored(buf *bytes.Buffer, color, text string) {
-	if f.enableColor {
+	if f.opts.EnableColor {
 		buf.WriteString(color)
 	}
 	buf.WriteString(text)
-	if f.enableColor {
-		buf.WriteString(colorReset)
+	if f.opts.EnableColor {
+		buf.WriteString(ColorReset)
 	}
 }
 
@@ -155,7 +114,7 @@ func (f *ColorTextFormatter) writeAttrs(buf *bytes.Buffer, attrs []slog.Attr, gr
 // writeAttr 写入单个属性
 func (f *ColorTextFormatter) writeAttr(buf *bytes.Buffer, attr slog.Attr, prefix string) {
 	key := prefix + attr.Key
-	f.writeColored(buf, colorCyan, key)
+	f.writeColored(buf, f.opts.ColorScheme.Key, key)
 	buf.WriteByte('=')
 	f.writeValue(buf, attr.Value, key)
 }
@@ -174,33 +133,33 @@ func (f *ColorTextFormatter) writeValue(buf *bytes.Buffer, v slog.Value, keyPath
 				return
 			}
 		}
-		f.writeColored(buf, colorGreen, strconv.Quote(s))
+		f.writeColored(buf, f.opts.ColorScheme.String, strconv.Quote(s))
 
 	case slog.KindInt64:
-		f.writeColored(buf, colorYellow, strconv.FormatInt(v.Int64(), 10))
+		f.writeColored(buf, f.opts.ColorScheme.Number, strconv.FormatInt(v.Int64(), 10))
 
 	case slog.KindUint64:
-		f.writeColored(buf, colorYellow, strconv.FormatUint(v.Uint64(), 10))
+		f.writeColored(buf, f.opts.ColorScheme.Number, strconv.FormatUint(v.Uint64(), 10))
 
 	case slog.KindFloat64:
-		f.writeColored(buf, colorYellow, strconv.FormatFloat(v.Float64(), 'f', -1, 64))
+		f.writeColored(buf, f.opts.ColorScheme.Number, strconv.FormatFloat(v.Float64(), 'f', -1, 64))
 
 	case slog.KindBool:
 		if v.Bool() {
-			f.writeColored(buf, colorYellow, "true")
+			f.writeColored(buf, f.opts.ColorScheme.Number, "true")
 		} else {
-			f.writeColored(buf, colorYellow, "false")
+			f.writeColored(buf, f.opts.ColorScheme.Number, "false")
 		}
 
 	case slog.KindDuration:
-		f.writeColored(buf, colorYellow, v.Duration().String())
+		f.writeColored(buf, f.opts.ColorScheme.Number, v.Duration().String())
 
 	case slog.KindTime:
 		t := v.Time()
 		if f.opts.Location != nil {
 			t = t.In(f.opts.Location)
 		}
-		f.writeColored(buf, colorGreen, strconv.Quote(formatTime(t, f.opts.TimeFormat)))
+		f.writeColored(buf, f.opts.ColorScheme.String, strconv.Quote(formatTime(t, f.opts.TimeFormat)))
 
 	case slog.KindGroup:
 		// 展开分组为平铺格式
@@ -216,14 +175,14 @@ func (f *ColorTextFormatter) writeValue(buf *bytes.Buffer, v slog.Value, keyPath
 		f.writeAny(buf, v.Any(), keyPath)
 
 	default:
-		f.writeColored(buf, colorGreen, strconv.Quote(v.String()))
+		f.writeColored(buf, f.opts.ColorScheme.String, strconv.Quote(v.String()))
 	}
 }
 
 // writeAny 写入任意类型
 func (f *ColorTextFormatter) writeAny(buf *bytes.Buffer, v any, keyPath string) {
 	if v == nil {
-		f.writeColored(buf, colorGray, "null")
+		f.writeColored(buf, f.opts.ColorScheme.Null, "null")
 		return
 	}
 
@@ -241,10 +200,10 @@ func (f *ColorTextFormatter) writeAny(buf *bytes.Buffer, v any, keyPath string) 
 	// 回退到简单字符串
 	data, err := json.Marshal(v)
 	if err != nil {
-		f.writeColored(buf, colorGreen, "<error>")
+		f.writeColored(buf, f.opts.ColorScheme.String, "<error>")
 		return
 	}
-	f.writeColored(buf, colorGreen, string(data))
+	f.writeColored(buf, f.opts.ColorScheme.String, string(data))
 }
 
 // tryFlattenJSON 尝试展开 JSON 为平铺格式
@@ -290,8 +249,8 @@ func (f *ColorTextFormatter) flattenValue(v any, path string, parts *[]string) {
 
 // coloredKV 生成带颜色的 key=value
 func (f *ColorTextFormatter) coloredKV(key, value string) string {
-	if f.enableColor {
-		return colorCyan + key + colorReset + "=" + colorGreen + value + colorReset
+	if f.opts.EnableColor {
+		return f.opts.ColorScheme.Key + key + ColorReset + "=" + f.opts.ColorScheme.String + value + ColorReset
 	}
 	return key + "=" + value
 }
