@@ -117,9 +117,9 @@ func (f *ColorTextFormatter) writeAttr(buf *bytes.Buffer, attr slog.Attr, prefix
 	f.writeColored(buf, f.opts.ColorScheme.Key, key)
 	buf.WriteByte('=')
 
-	// 检查是否为 raw 字段（不加引号直接输出）
+	// 检查是否为 raw 字段（不加引号直接输出，但保留颜色）
 	if f.opts.RawFields[attr.Key] {
-		buf.WriteString(attr.Value.Resolve().String())
+		f.writeColored(buf, f.opts.ColorScheme.String, attr.Value.Resolve().String())
 		return
 	}
 
