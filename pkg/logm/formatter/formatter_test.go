@@ -577,3 +577,65 @@ func TestWithSourceDepth(t *testing.T) {
 	WithSourceDepth(2)(opts)
 	assert.Equal(t, 2, opts.SourceDepth)
 }
+
+// ============ RawFields Tests ============
+
+func TestWithRawFields(t *testing.T) {
+	opts := defaultOptions()
+	WithRawFields("sql", "query")(opts)
+	assert.True(t, opts.RawFields["sql"])
+	assert.True(t, opts.RawFields["query"])
+	assert.False(t, opts.RawFields["other"])
+}
+
+func TestTextFormatter_RawFields(t *testing.T) {
+	// 测试 Text 格式化器的 RawFields 功能
+	f := Text(WithRawFields("sql"))
+	r := newTestRecord("query executed",
+		slog.String("sql", `SELECT id, name FROM "users" WHERE "id" = 1`),
+		slog.String("table", "users"),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+
+	// sql 字段不应该有外层引号和转义
+	assert.Contains(t, output, `sql=SELECT id, name FROM "users" WHERE "id" = 1`)
+
+	// table 字段应该正常处理（无特殊字符，不加引号）
+	assert.Contains(t, output, `table=users`)
+}
+
+func TestTextFormatter_RawFields_WithSpecialChars(t *testing.T) {
+	// 测试包含空格和等号的 SQL
+	f := Text(WithRawFields("sql"))
+	r := newTestRecord("query",
+		slog.String("sql", `SELECT id, name FROM users WHERE status = 'active'`),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+	// 原样输出，不加引号
+	assert.Contains(t, output, `sql=SELECT id, name FROM users WHERE status = 'active'`)
+}
+
+func TestColorTextFormatter_RawFields(t *testing.T) {
+	// 测试彩色格式化器的 RawFields 功能
+	f := ColorText(WithRawFields("sql"), WithColor(false))
+	r := newTestRecord("query executed",
+		slog.String("sql", `SELECT id, name FROM "users"`),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+	// sql 字段不应该有外层引号
+	assert.Contains(t, output, `sql=SELECT id, name FROM "users"`)
+	// 不应该有转义的引号
+	assert.NotContains(t, output, `\"`)
+}

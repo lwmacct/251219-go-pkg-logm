@@ -81,6 +81,13 @@ func (f *TextFormatter) writeAttrs(buf *bytes.Buffer, attrs []slog.Attr, groups 
 func (f *TextFormatter) writeAttr(buf *bytes.Buffer, attr slog.Attr, prefix string) {
 	buf.WriteString(attr.Key)
 	buf.WriteByte('=')
+
+	// 检查是否为 raw 字段（不加引号直接输出）
+	if f.opts.RawFields[attr.Key] {
+		buf.WriteString(attr.Value.Resolve().String())
+		return
+	}
+
 	f.writeValue(buf, attr.Value, prefix+attr.Key+".")
 }
 

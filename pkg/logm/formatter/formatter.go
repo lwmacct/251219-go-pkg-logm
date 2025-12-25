@@ -34,6 +34,7 @@ type Options struct {
 	SourceDepth int          // Source 路径保留层数 (默认 3)
 	ColorScheme *ColorScheme // 颜色配置方案
 	EnableColor bool         // 启用颜色输出
+	RawFields   map[string]bool // 不加引号直接输出的字段名集合
 }
 
 // Option 选项函数
@@ -88,6 +89,26 @@ func WithColor(enable bool) Option {
 func WithColorScheme(scheme *ColorScheme) Option {
 	return func(o *Options) {
 		o.ColorScheme = scheme
+	}
+}
+
+// WithRawFields 设置不加引号直接输出的字段。
+//
+// 指定的字段值将直接输出，不进行引号包裹和转义。
+// 适用于 SQL 语句等包含特殊字符但需要原样显示的场景。
+//
+// 示例：
+//
+//	formatter.Text(formatter.WithRawFields("sql", "query"))
+//	// sql=SELECT * FROM "users"  而不是 sql="SELECT * FROM \"users\""
+func WithRawFields(fields ...string) Option {
+	return func(o *Options) {
+		if o.RawFields == nil {
+			o.RawFields = make(map[string]bool)
+		}
+		for _, f := range fields {
+			o.RawFields[f] = true
+		}
 	}
 }
 

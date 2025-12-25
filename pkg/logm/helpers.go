@@ -1,9 +1,11 @@
 package logm
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 )
 
 // FormatBytes 将字节数格式化为人类可读的字符串（如 "1.5 KB"、"2.3 MB"）。
@@ -92,4 +94,27 @@ func clipWorkspacePath(path string) string {
 
 	// 返回项目目录后面的部分
 	return rest[slashIdx+1:]
+}
+
+// LogWithPC 使用指定的 PC（程序计数器）记录日志。
+//
+// 配合 [CallerPC] 使用，可以在日志封装场景中正确显示调用源位置。
+// 当 pc 为 0 时，日志不会包含 source 信息。
+//
+// 示例：
+//
+//	pc := logm.CallerPC("gorm.io/gorm", "myapp/database")
+//	logm.LogWithPC(ctx, slog.LevelDebug, pc, "query executed",
+//	    slog.Duration("elapsed", elapsed),
+//	    slog.String("sql", sql),
+//	)
+func LogWithPC(ctx context.Context, level slog.Level, pc uintptr, msg string, attrs ...any) {
+	logger := FromContext(ctx)
+	if !logger.Enabled(ctx, level) {
+		return
+	}
+
+	r := slog.NewRecord(time.Now(), level, msg, pc)
+	r.Add(attrs...)
+	_ = logger.Handler().Handle(ctx, r)
 }

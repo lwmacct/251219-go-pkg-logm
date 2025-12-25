@@ -15,11 +15,13 @@ import (
 //   - DEBUG 级别
 //   - 显示源代码位置
 //   - 简洁时间格式 (15:04:05)
+//   - sql/query 字段不加引号（方便阅读 SQL）
 func PresetDev() []Option {
 	return []Option{
 		WithLevel("DEBUG"),
 		WithFormatter(formatter.ColorText(
 			formatter.WithTimeFormat("time"),
+			formatter.WithRawFields("sql", "query"),
 		)),
 		WithWriter(writer.Stdout()),
 		WithAddSource(true),
