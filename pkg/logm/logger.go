@@ -10,8 +10,6 @@ import (
 )
 
 var (
-	// globalHandler 全局 Handler
-	globalHandler *Handler
 	// globalManagedHandlers 需要在 Close/Sync 时管理生命周期的 handlers
 	globalManagedHandlers []managedHandler
 	// globalMu 保护全局状态
@@ -24,7 +22,6 @@ type managedHandler interface {
 }
 
 type builtHandler struct {
-	base    *Handler
 	handler slog.Handler
 	managed []managedHandler
 }
@@ -82,7 +79,6 @@ func Init(opts ...Option) error {
 	if len(globalManagedHandlers) > 0 {
 		_ = closeManagedHandlers(globalManagedHandlers)
 	}
-	globalHandler = built.base
 	globalManagedHandlers = built.managed
 	globalMu.Unlock()
 
@@ -149,7 +145,6 @@ func Close() error {
 
 	if len(globalManagedHandlers) > 0 {
 		err := closeManagedHandlers(globalManagedHandlers)
-		globalHandler = nil
 		globalManagedHandlers = nil
 		return err
 	}
@@ -196,7 +191,6 @@ func buildHandler(o *options, levelVar *slog.LevelVar) *builtHandler {
 	}
 
 	return &builtHandler{
-		base:    base,
 		handler: combined,
 		managed: managed,
 	}
