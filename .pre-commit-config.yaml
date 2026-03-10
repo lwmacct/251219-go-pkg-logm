@@ -18,4 +18,9 @@ repos:
     rev: v1.0.2
     hooks:
       - id: prettier
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.9.0
+    hooks:
       - id: golangci-lint
+      - id: golangci-lint-config-verify
