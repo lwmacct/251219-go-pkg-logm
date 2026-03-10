@@ -12,14 +12,15 @@ type Option func(*options)
 
 // options 内部配置结构
 type options struct {
-	level      string
-	levelVar   *slog.LevelVar
-	formatter  Formatter
-	writers    []Writer
-	addSource  bool
-	timeFormat string
-	timezone   string
-	location   *time.Location
+	level        string
+	levelVar     *slog.LevelVar
+	formatter    Formatter
+	writers      []Writer
+	slogHandlers []slog.Handler
+	addSource    bool
+	timeFormat   string
+	timezone     string
+	location     *time.Location
 
 	interceptors []Interceptor
 }
@@ -81,6 +82,29 @@ func WithFormatter(f Formatter) Option {
 func WithWriter(w Writer) Option {
 	return func(o *options) {
 		o.writers = append(o.writers, w)
+	}
+}
+
+// WithSlogHandler 添加额外的 slog.Handler。
+//
+// 在 Go 1.26+ 下，如果同时配置了多个 Handler，logm 会自动使用
+// slog.NewMultiHandler 将它们组合起来，实现多路输出。
+func WithSlogHandler(h slog.Handler) Option {
+	return func(o *options) {
+		if h != nil {
+			o.slogHandlers = append(o.slogHandlers, h)
+		}
+	}
+}
+
+// WithSlogHandlers 批量添加额外的 slog.Handler。
+func WithSlogHandlers(handlers ...slog.Handler) Option {
+	return func(o *options) {
+		for _, h := range handlers {
+			if h != nil {
+				o.slogHandlers = append(o.slogHandlers, h)
+			}
+		}
 	}
 }
 

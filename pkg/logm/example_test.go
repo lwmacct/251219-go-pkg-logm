@@ -128,6 +128,25 @@ func Example_new() {
 	_ = jsonLogger
 }
 
+// Example_multiHandler 展示 Go 1.26 的 slog.MultiHandler 能力。
+func Example_multiHandler() {
+	var textBuf bytes.Buffer
+	var jsonBuf bytes.Buffer
+
+	log := logm.New(
+		logm.WithWriter(&testBufWriter{buf: &textBuf}),
+		logm.WithSlogHandler(slog.NewJSONHandler(&jsonBuf, nil)),
+	)
+
+	log.Info("hello", "user", "alice")
+
+	if strings.Contains(textBuf.String(), "hello") &&
+		strings.Contains(jsonBuf.String(), `"user":"alice"`) {
+		fmt.Println("multi handler works")
+	}
+	// Output: multi handler works
+}
+
 // ExampleFormatBytes 展示字节格式化函数的使用。
 func ExampleFormatBytes() {
 	fmt.Println(logm.FormatBytes(0))

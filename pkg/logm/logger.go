@@ -12,9 +12,22 @@ import (
 var (
 	// globalHandler 全局 Handler
 	globalHandler *Handler
+	// globalManagedHandlers 需要在 Close/Sync 时管理生命周期的 handlers
+	globalManagedHandlers []managedHandler
 	// globalMu 保护全局状态
 	globalMu sync.RWMutex
 )
+
+type managedHandler interface {
+	Close() error
+	Sync() error
+}
+
+type builtHandler struct {
+	base    *Handler
+	handler slog.Handler
+	managed []managedHandler
+}
 
 // Init 初始化全局日志系统。
 //
@@ -62,26 +75,18 @@ func Init(opts ...Option) error {
 	}
 	levelVar.Set(ParseLevel(o.level))
 
-	// 创建 Handler
-	h := NewHandler(&HandlerConfig{
-		LevelVar:     levelVar,
-		Formatter:    o.formatter,
-		Writers:      o.writers,
-		Interceptors: o.interceptors,
-		AddSource:    o.addSource,
-		TimeFormat:   o.timeFormat,
-		Location:     o.location,
-	})
+	built := buildHandler(o, levelVar)
 
 	// 设置全局
 	globalMu.Lock()
-	if globalHandler != nil {
-		_ = globalHandler.Close()
+	if len(globalManagedHandlers) > 0 {
+		_ = closeManagedHandlers(globalManagedHandlers)
 	}
-	globalHandler = h
+	globalHandler = built.base
+	globalManagedHandlers = built.managed
 	globalMu.Unlock()
 
-	slog.SetDefault(slog.New(h))
+	slog.SetDefault(slog.New(built.handler))
 	return nil
 }
 
@@ -132,7 +137,39 @@ func New(opts ...Option) *slog.Logger {
 	levelVar := &slog.LevelVar{}
 	levelVar.Set(ParseLevel(o.level))
 
-	h := NewHandler(&HandlerConfig{
+	built := buildHandler(o, levelVar)
+
+	return slog.New(built.handler)
+}
+
+// Close 关闭全局日志系统，释放资源。
+func Close() error {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+
+	if len(globalManagedHandlers) > 0 {
+		err := closeManagedHandlers(globalManagedHandlers)
+		globalHandler = nil
+		globalManagedHandlers = nil
+		return err
+	}
+	return nil
+}
+
+// Sync 刷新全局日志缓冲区。
+func Sync() error {
+	globalMu.RLock()
+	handlers := append([]managedHandler(nil), globalManagedHandlers...)
+	globalMu.RUnlock()
+
+	if len(handlers) > 0 {
+		return syncManagedHandlers(handlers)
+	}
+	return nil
+}
+
+func buildHandler(o *options, levelVar *slog.LevelVar) *builtHandler {
+	base := NewHandler(&HandlerConfig{
 		LevelVar:     levelVar,
 		Formatter:    o.formatter,
 		Writers:      o.writers,
@@ -142,32 +179,47 @@ func New(opts ...Option) *slog.Logger {
 		Location:     o.location,
 	})
 
-	return slog.New(h)
+	handlers := make([]slog.Handler, 0, 1+len(o.slogHandlers))
+	handlers = append(handlers, base)
+
+	managed := []managedHandler{base}
+	for _, h := range o.slogHandlers {
+		handlers = append(handlers, h)
+		if mh, ok := h.(managedHandler); ok {
+			managed = append(managed, mh)
+		}
+	}
+
+	combined := slog.Handler(base)
+	if len(handlers) > 1 {
+		combined = slog.NewMultiHandler(handlers...)
+	}
+
+	return &builtHandler{
+		base:    base,
+		handler: combined,
+		managed: managed,
+	}
 }
 
-// Close 关闭全局日志系统，释放资源。
-func Close() error {
-	globalMu.Lock()
-	defer globalMu.Unlock()
-
-	if globalHandler != nil {
-		err := globalHandler.Close()
-		globalHandler = nil
-		return err
+func closeManagedHandlers(handlers []managedHandler) error {
+	var firstErr error
+	for _, h := range handlers {
+		if err := h.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return nil
+	return firstErr
 }
 
-// Sync 刷新全局日志缓冲区。
-func Sync() error {
-	globalMu.RLock()
-	h := globalHandler
-	globalMu.RUnlock()
-
-	if h != nil {
-		return h.Sync()
+func syncManagedHandlers(handlers []managedHandler) error {
+	var firstErr error
+	for _, h := range handlers {
+		if err := h.Sync(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return nil
+	return firstErr
 }
 
 // Default 返回全局默认 logger。

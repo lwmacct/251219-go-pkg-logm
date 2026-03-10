@@ -67,6 +67,24 @@ func TestNew_WithWriter(t *testing.T) {
 	assert.NotNil(t, log)
 }
 
+func TestNew_WithSlogHandler(t *testing.T) {
+	var textBuf bytes.Buffer
+	var jsonBuf bytes.Buffer
+
+	log := New(
+		WithWriter(&testWriter{buf: &textBuf}),
+		WithSlogHandler(slog.NewJSONHandler(&jsonBuf, nil)),
+	)
+	require.NotNil(t, log)
+
+	log.Info("hello", "user", "alice")
+
+	assert.Contains(t, textBuf.String(), "hello")
+	assert.Contains(t, textBuf.String(), "user=alice")
+	assert.Contains(t, jsonBuf.String(), `"msg":"hello"`)
+	assert.Contains(t, jsonBuf.String(), `"user":"alice"`)
+}
+
 func TestSetLevel(t *testing.T) {
 	err := Init(WithLevel("INFO"))
 	require.NoError(t, err)
@@ -411,6 +429,24 @@ func TestClose_Multiple(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestInit_WithManagedSlogHandler(t *testing.T) {
+	managed := &managedTestHandler{}
+
+	err := Init(
+		WithWriter(&testWriter{buf: &bytes.Buffer{}}),
+		WithSlogHandler(managed),
+	)
+	require.NoError(t, err)
+
+	err = Sync()
+	require.NoError(t, err)
+	assert.Equal(t, 1, managed.syncCalls)
+
+	err = Close()
+	require.NoError(t, err)
+	assert.Equal(t, 1, managed.closeCalls)
+}
+
 // testWriter 是一个简单的 Writer 实现用于测试
 type testWriter struct {
 	buf *bytes.Buffer
@@ -425,5 +461,36 @@ func (w *testWriter) Close() error {
 }
 
 func (w *testWriter) Sync() error {
+	return nil
+}
+
+type managedTestHandler struct {
+	syncCalls  int
+	closeCalls int
+}
+
+func (h *managedTestHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *managedTestHandler) Handle(context.Context, slog.Record) error {
+	return nil
+}
+
+func (h *managedTestHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *managedTestHandler) WithGroup(string) slog.Handler {
+	return h
+}
+
+func (h *managedTestHandler) Sync() error {
+	h.syncCalls++
+	return nil
+}
+
+func (h *managedTestHandler) Close() error {
+	h.closeCalls++
 	return nil
 }

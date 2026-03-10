@@ -1,6 +1,6 @@
 # logm
 
-基于 Go 1.21+ `log/slog` 的结构化日志库。
+基于 Go 1.26+ `log/slog` 的结构化日志库。
 
 [![License](https://img.shields.io/github/license/lwmacct/251219-go-pkg-logm)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/lwmacct/251219-go-pkg-logm.svg)](https://pkg.go.dev/github.com/lwmacct/251219-go-pkg-logm)
@@ -40,6 +40,44 @@ func main() {
     slog.Info("started", "port", 8080)
 }
 ```
+
+## Go 1.26 多路输出
+
+Go 1.26 新增了标准库 `slog.NewMultiHandler(...)`。
+`logm` 现在提供 `WithSlogHandler` / `WithSlogHandlers`，可以把 `logm` 自己的 Handler
+和标准库、第三方 `slog.Handler` 一起组合。
+
+```go
+package main
+
+import (
+    "log/slog"
+    "os"
+
+    "github.com/lwmacct/251219-go-pkg-logm/pkg/logm"
+    "github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
+)
+
+func main() {
+    file, err := os.Create("app.json.log")
+    if err != nil {
+        panic(err)
+    }
+    defer file.Close()
+
+    logger := logm.New(
+        logm.WithWriter(writer.Stdout()),
+        logm.WithSlogHandler(slog.NewJSONHandler(file, nil)),
+    )
+
+    logger.Info("hello", "user", "alice")
+}
+```
+
+上面这条日志会同时输出到：
+
+- 终端（通过 `logm` 默认文本格式）
+- 文件（通过标准库 `slog.JSONHandler` 输出 JSON）
 
 ## 文档
 

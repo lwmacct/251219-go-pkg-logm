@@ -1,6 +1,6 @@
 // Package logm 提供统一的结构化日志系统。
 //
-// 基于 Go 1.21+ 的 log/slog 包构建，采用 Functional Options 模式配置，
+// 基于 Go 1.26+ 的 log/slog 包构建，采用 Functional Options 模式配置，
 // 支持多种输出格式、日志轮转、异步写入和动态级别调整。
 //
 // # Architecture
@@ -43,6 +43,15 @@
 //	    )),
 //	    logm.WithAddSource(true),
 //	)
+//
+// Go 1.26 起也可混用多个 slog.Handler：
+//
+//	logm.Init(
+//	    logm.WithWriter(writer.Stdout()),
+//	    logm.WithSlogHandler(slog.NewJSONHandler(file, nil)),
+//	)
+//
+// logm 会自动用 slog.NewMultiHandler 同时分发到两路 Handler。
 //
 // # Sub-packages
 //
