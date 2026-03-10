@@ -16,11 +16,10 @@ import (
 //
 //nolint:testableexamples // 日志输出不确定，无法验证
 func Example() {
-	// 使用 Functional Options 初始化
-	_ = logm.Init(
-		logm.WithLevel("DEBUG"),
-		logm.WithFormatter(formatter.Text()),
-	)
+	_ = logm.Init(logm.Config{
+		Level:     "DEBUG",
+		Formatter: formatter.Text(),
+	})
 	defer func() { _ = logm.Close() }()
 
 	// 实际使用时，日志会输出到配置的目标
@@ -38,11 +37,11 @@ func Example_slogCompatible() {
 	w := &testBufWriter{buf: &buf}
 
 	// 使用 JSON formatter 初始化 logm
-	_ = logm.Init(
-		logm.WithFormatter(formatter.JSON()),
-		logm.WithWriter(w),
-		logm.WithLevel("INFO"),
-	)
+	_ = logm.Init(logm.Config{
+		Formatter: formatter.JSON(),
+		Output:    w,
+		Level:     "INFO",
+	})
 	defer func() { _ = logm.Close() }()
 
 	// 直接使用标准库 slog，日志会经过 logm 的 JSON formatter
@@ -65,7 +64,7 @@ func Example_slogCompatible() {
 //nolint:testableexamples // 日志输出不确定，无法验证
 func Example_development() {
 	// 使用开发环境预设：彩色输出 + DEBUG + 源代码位置
-	_ = logm.Init(logm.PresetDev()...)
+	_ = logm.Init(logm.PresetDev())
 	defer func() { _ = logm.Close() }()
 
 	// 此处不实际输出日志，仅展示 API 用法
@@ -79,7 +78,7 @@ func Example_development() {
 //nolint:testableexamples // 日志输出不确定，无法验证
 func Example_production() {
 	// 使用生产环境预设：JSON + INFO + RFC3339
-	_ = logm.Init(logm.PresetProd()...)
+	_ = logm.Init(logm.PresetProd())
 	defer func() { _ = logm.Close() }()
 
 	// 此处不实际输出日志，仅展示 API 用法
@@ -94,7 +93,7 @@ func Example_production() {
 func Example_fromEnv() {
 	// PresetFromEnv 从环境变量读取配置，适合大多数应用
 	// 支持: LOGM_ENV, LOGM_LEVEL, LOGM_FORMAT, LOGM_OUTPUT, LOGM_SOURCE 等
-	_ = logm.Init(logm.PresetFromEnv()...)
+	_ = logm.Init(logm.PresetFromEnv())
 	defer func() { _ = logm.Close() }()
 
 	// 此处不实际输出日志，仅展示 API 用法
@@ -120,11 +119,11 @@ func Example_withRequestID() {
 //nolint:testableexamples // 无实际输出
 func Example_new() {
 	// 创建 JSON 格式的独立 logger，适用于模块专用日志
-	jsonLogger := logm.New(
-		logm.WithLevel("INFO"),
-		logm.WithFormatter(formatter.JSON()),
-		logm.WithAddSource(true),
-	)
+	jsonLogger := logm.New(logm.Config{
+		Level:     "INFO",
+		Formatter: formatter.JSON(),
+		AddSource: true,
+	})
 	_ = jsonLogger
 }
 
@@ -133,10 +132,10 @@ func Example_multiHandler() {
 	var textBuf bytes.Buffer
 	var jsonBuf bytes.Buffer
 
-	log := logm.New(
-		logm.WithWriter(&testBufWriter{buf: &textBuf}),
-		logm.WithSlogHandler(slog.NewJSONHandler(&jsonBuf, nil)),
-	)
+	log := logm.New(logm.Config{
+		Output:       &testBufWriter{buf: &textBuf},
+		SlogHandlers: []slog.Handler{slog.NewJSONHandler(&jsonBuf, nil)},
+	})
 
 	log.Info("hello", "user", "alice")
 
@@ -235,12 +234,12 @@ func ExampleFromContext() {
 //
 //nolint:testableexamples // 日志输出不确定，无法验证
 func Example_coloredOutput() {
-	_ = logm.Init(
-		logm.WithLevel("DEBUG"),
-		logm.WithFormatter(formatter.ColorText()),
-		logm.WithTimeFormat("time"),
-		logm.WithAddSource(true),
-	)
+	_ = logm.Init(logm.Config{
+		Level:      "DEBUG",
+		Formatter:  formatter.ColorText(),
+		TimeFormat: "time",
+		AddSource:  true,
+	})
 	defer func() { _ = logm.Close() }()
 
 	// 不同级别的日志会显示不同颜色
@@ -254,12 +253,12 @@ func Example_coloredOutput() {
 //
 //nolint:testableexamples // 日志输出不确定，无法验证
 func Example_jsonOutput() {
-	_ = logm.Init(
-		logm.WithLevel("INFO"),
-		logm.WithFormatter(formatter.JSON(
+	_ = logm.Init(logm.Config{
+		Level: "INFO",
+		Formatter: formatter.JSON(
 			formatter.WithTimeFormat("rfc3339ms"),
-		)),
-	)
+		),
+	})
 	defer func() { _ = logm.Close() }()
 
 	// JSON 输出格式化后易于机器解析
@@ -270,7 +269,7 @@ func Example_jsonOutput() {
 //
 //nolint:testableexamples // 日志输出不确定，无法验证
 func Example_dynamicLevel() {
-	_ = logm.Init(logm.WithLevel("INFO"))
+	_ = logm.Init(logm.Config{Level: "INFO"})
 	defer func() { _ = logm.Close() }()
 
 	// 运行时动态调整日志级别

@@ -32,8 +32,7 @@ import (
 )
 
 func main() {
-    // 一次性初始化（失败时 panic）
-    logm.MustInit(logm.PresetAuto()...)
+    logm.MustInit(logm.PresetAuto())
     defer logm.Close()
 
     // 之后直接使用标准库 slog
@@ -44,7 +43,7 @@ func main() {
 ## Go 1.26 多路输出
 
 Go 1.26 新增了标准库 `slog.NewMultiHandler(...)`。
-`logm` 现在提供 `WithSlogHandler` / `WithSlogHandlers`，可以把 `logm` 自己的 Handler
+`logm` 现在通过 `Config.SlogHandlers` 把 `logm` 自己的 Handler
 和标准库、第三方 `slog.Handler` 一起组合。
 
 ```go
@@ -65,10 +64,12 @@ func main() {
     }
     defer file.Close()
 
-    logger := logm.New(
-        logm.WithWriter(writer.Stdout()),
-        logm.WithSlogHandler(slog.NewJSONHandler(file, nil)),
-    )
+    logger := logm.New(logm.Config{
+        Output: writer.Stdout(),
+        SlogHandlers: []slog.Handler{
+            slog.NewJSONHandler(file, nil),
+        },
+    })
 
     logger.Info("hello", "user", "alice")
 }

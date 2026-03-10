@@ -1,6 +1,6 @@
 // Package logm 提供统一的结构化日志系统。
 //
-// 基于 Go 1.26+ 的 log/slog 包构建，采用 Functional Options 模式配置，
+// 基于 Go 1.26+ 的 log/slog 包构建，采用显式 Config 结构配置，
 // 支持多种输出格式、日志轮转、异步写入和动态级别调整。
 //
 // # Architecture
@@ -16,7 +16,7 @@
 //
 //	func main() {
 //	    // 开发环境：彩色输出 + DEBUG + 源代码位置
-//	    logm.MustInit(logm.PresetDev()...)
+//	    logm.MustInit(logm.PresetDev())
 //	    defer logm.Close()
 //
 //	    slog.Info("应用启动", "version", "1.0.0")
@@ -24,32 +24,34 @@
 //
 // 生产环境：
 //
-//	logm.MustInit(logm.PresetProd()...)
+//	logm.MustInit(logm.PresetProd())
 //
 // 从环境变量读取配置：
 //
-//	logm.MustInit(logm.PresetFromEnv()...)
+//	logm.MustInit(logm.PresetFromEnv())
 //
-// # Functional Options
+// # Config
 //
-// 使用 Functional Options 进行精确配置：
+// 使用 Config 进行精确配置：
 //
-//	logm.Init(
-//	    logm.WithLevel("DEBUG"),
-//	    logm.WithFormatter(formatter.ColorText()),
-//	    logm.WithWriter(writer.Multi(
+//	logm.Init(logm.Config{
+//	    Level:     "DEBUG",
+//	    Formatter: formatter.ColorText(),
+//	    Output: writer.Multi(
 //	        writer.Stdout(),
 //	        writer.File("/var/log/app.log", writer.WithRotation(100, 7)),
-//	    )),
-//	    logm.WithAddSource(true),
-//	)
+//	    ),
+//	    AddSource: true,
+//	})
 //
 // Go 1.26 起也可混用多个 slog.Handler：
 //
-//	logm.Init(
-//	    logm.WithWriter(writer.Stdout()),
-//	    logm.WithSlogHandler(slog.NewJSONHandler(file, nil)),
-//	)
+//	logm.Init(logm.Config{
+//	    Output: writer.Stdout(),
+//	    SlogHandlers: []slog.Handler{
+//	        slog.NewJSONHandler(file, nil),
+//	    },
+//	})
 //
 // logm 会自动用 slog.NewMultiHandler 同时分发到两路 Handler。
 //
@@ -84,12 +86,12 @@
 //
 // 使用拦截器添加通用字段或过滤日志：
 //
-//	logm.Init(
-//	    logm.WithInterceptor(func(ctx context.Context, r *logm.Record) *logm.Record {
-//	        r.Attrs = append(r.Attrs, slog.String("trace_id", getTraceID(ctx)))
-//	        return r
-//	    }),
-//	)
+//	cfg := logm.PresetDefault()
+//	cfg.Interceptors = append(cfg.Interceptors, func(ctx context.Context, r *logm.Record) *logm.Record {
+//	    r.Attrs = append(r.Attrs, slog.String("trace_id", getTraceID(ctx)))
+//	    return r
+//	})
+//	logm.Init(cfg)
 //
 // # Context Integration
 //

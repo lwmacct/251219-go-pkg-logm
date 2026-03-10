@@ -23,19 +23,19 @@ func TestInit_Default(t *testing.T) {
 }
 
 func TestInit_WithLevel(t *testing.T) {
-	err := Init(WithLevel("DEBUG"))
+	err := Init(Config{Level: "DEBUG"})
 	require.NoError(t, err)
 	defer func() { _ = Close() }()
 }
 
 func TestInit_Development(t *testing.T) {
-	err := Init(PresetDev()...)
+	err := Init(PresetDev())
 	require.NoError(t, err)
 	defer func() { _ = Close() }()
 }
 
 func TestInit_Production(t *testing.T) {
-	err := Init(PresetProd()...)
+	err := Init(PresetProd())
 	require.NoError(t, err)
 	defer func() { _ = Close() }()
 }
@@ -43,27 +43,27 @@ func TestInit_Production(t *testing.T) {
 func TestMustInit_Success(t *testing.T) {
 	// MustInit 成功时不应 panic
 	assert.NotPanics(t, func() {
-		MustInit(WithLevel("INFO"))
+		MustInit(Config{Level: "INFO"})
 	})
 	defer func() { _ = Close() }()
 }
 
 func TestNew_ReturnsLogger(t *testing.T) {
-	log := New(WithLevel("INFO"))
+	log := New(Config{Level: "INFO"})
 	assert.NotNil(t, log)
 }
 
 func TestNew_WithFormatter(t *testing.T) {
-	log := New(
-		WithFormatter(formatter.JSON()),
-		WithLevel("DEBUG"),
-	)
+	log := New(Config{
+		Formatter: formatter.JSON(),
+		Level:     "DEBUG",
+	})
 	assert.NotNil(t, log)
 }
 
 func TestNew_WithWriter(t *testing.T) {
 	w := writer.Stdout()
-	log := New(WithWriter(w))
+	log := New(Config{Output: w})
 	assert.NotNil(t, log)
 }
 
@@ -71,10 +71,10 @@ func TestNew_WithSlogHandler(t *testing.T) {
 	var textBuf bytes.Buffer
 	var jsonBuf bytes.Buffer
 
-	log := New(
-		WithWriter(&testWriter{buf: &textBuf}),
-		WithSlogHandler(slog.NewJSONHandler(&jsonBuf, nil)),
-	)
+	log := New(Config{
+		Output:       &testWriter{buf: &textBuf},
+		SlogHandlers: []slog.Handler{slog.NewJSONHandler(&jsonBuf, nil)},
+	})
 	require.NotNil(t, log)
 
 	log.Info("hello", "user", "alice")
@@ -85,8 +85,27 @@ func TestNew_WithSlogHandler(t *testing.T) {
 	assert.Contains(t, jsonBuf.String(), `"user":"alice"`)
 }
 
+func TestNew_WithLevelVar(t *testing.T) {
+	var buf bytes.Buffer
+	levelVar := &slog.LevelVar{}
+	levelVar.Set(slog.LevelError)
+
+	log := New(Config{
+		LevelVar: levelVar,
+		Output:   &testWriter{buf: &buf},
+	})
+	require.NotNil(t, log)
+
+	log.Info("filtered")
+	assert.NotContains(t, buf.String(), "filtered")
+
+	levelVar.Set(slog.LevelInfo)
+	log.Info("visible")
+	assert.Contains(t, buf.String(), "visible")
+}
+
 func TestSetLevel(t *testing.T) {
-	err := Init(WithLevel("INFO"))
+	err := Init(Config{Level: "INFO"})
 	require.NoError(t, err)
 	defer func() { _ = Close() }()
 
@@ -248,7 +267,7 @@ func TestHandler_Handle(t *testing.T) {
 
 	h := NewHandler(&HandlerConfig{
 		Formatter: formatter.Text(),
-		Writers:   []Writer{stdoutWriter},
+		Output:    stdoutWriter,
 	})
 
 	logger := slog.New(h)
@@ -265,7 +284,7 @@ func TestHandler_WithAttrs(t *testing.T) {
 
 	h := NewHandler(&HandlerConfig{
 		Formatter: formatter.Text(),
-		Writers:   []Writer{stdoutWriter},
+		Output:    stdoutWriter,
 	})
 
 	logger := slog.New(h).With("service", "api")
@@ -281,7 +300,7 @@ func TestHandler_WithGroup(t *testing.T) {
 
 	h := NewHandler(&HandlerConfig{
 		Formatter: formatter.Text(),
-		Writers:   []Writer{stdoutWriter},
+		Output:    stdoutWriter,
 	})
 
 	logger := slog.New(h).WithGroup("request")
@@ -302,7 +321,7 @@ func TestHandler_LevelFilter(t *testing.T) {
 	h := NewHandler(&HandlerConfig{
 		LevelVar:  levelVar,
 		Formatter: formatter.Text(),
-		Writers:   []Writer{stdoutWriter},
+		Output:    stdoutWriter,
 	})
 
 	logger := slog.New(h)
@@ -330,7 +349,7 @@ func TestHandler_Interceptor(t *testing.T) {
 
 	h := NewHandler(&HandlerConfig{
 		Formatter:    formatter.Text(),
-		Writers:      []Writer{stdoutWriter},
+		Output:       stdoutWriter,
 		Interceptors: []Interceptor{interceptor},
 	})
 
@@ -355,7 +374,7 @@ func TestHandler_InterceptorFilter(t *testing.T) {
 
 	h := NewHandler(&HandlerConfig{
 		Formatter:    formatter.Text(),
-		Writers:      []Writer{stdoutWriter},
+		Output:       stdoutWriter,
 		Interceptors: []Interceptor{interceptor},
 	})
 
@@ -374,7 +393,7 @@ func TestHandler_AddSource(t *testing.T) {
 
 	h := NewHandler(&HandlerConfig{
 		Formatter: formatter.Text(),
-		Writers:   []Writer{stdoutWriter},
+		Output:    stdoutWriter,
 		AddSource: true,
 	})
 
@@ -387,7 +406,7 @@ func TestHandler_AddSource(t *testing.T) {
 }
 
 func TestDebugInfoWarnError(t *testing.T) {
-	err := Init(WithLevel("DEBUG"))
+	err := Init(Config{Level: "DEBUG"})
 	require.NoError(t, err)
 	defer func() { _ = Close() }()
 
@@ -399,7 +418,7 @@ func TestDebugInfoWarnError(t *testing.T) {
 }
 
 func TestWith(t *testing.T) {
-	err := Init(WithLevel("INFO"))
+	err := Init(Config{Level: "INFO"})
 	require.NoError(t, err)
 	defer func() { _ = Close() }()
 
@@ -408,7 +427,7 @@ func TestWith(t *testing.T) {
 }
 
 func TestWithGroup(t *testing.T) {
-	err := Init(WithLevel("INFO"))
+	err := Init(Config{Level: "INFO"})
 	require.NoError(t, err)
 	defer func() { _ = Close() }()
 
@@ -429,13 +448,26 @@ func TestClose_Multiple(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestClose_RestoresPreviousDefault(t *testing.T) {
+	previous := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	slog.SetDefault(previous)
+
+	err := Init(Config{Output: &testWriter{buf: &bytes.Buffer{}}})
+	require.NoError(t, err)
+
+	err = Close()
+	require.NoError(t, err)
+
+	assert.Same(t, previous, slog.Default())
+}
+
 func TestInit_WithManagedSlogHandler(t *testing.T) {
 	managed := &managedTestHandler{}
 
-	err := Init(
-		WithWriter(&testWriter{buf: &bytes.Buffer{}}),
-		WithSlogHandler(managed),
-	)
+	err := Init(Config{
+		Output:       &testWriter{buf: &bytes.Buffer{}},
+		SlogHandlers: []slog.Handler{managed},
+	})
 	require.NoError(t, err)
 
 	err = Sync()

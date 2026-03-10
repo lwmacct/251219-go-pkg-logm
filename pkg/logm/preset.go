@@ -16,17 +16,17 @@ import (
 //   - 显示源代码位置
 //   - 简洁时间格式 (15:04:05)
 //   - sql/query 字段不加引号（方便阅读 SQL）
-func PresetDev() []Option {
-	return []Option{
-		WithLevel("DEBUG"),
-		WithFormatter(formatter.ColorText(
+func PresetDev() Config {
+	return Config{
+		Level: "DEBUG",
+		Formatter: formatter.ColorText(
 			formatter.WithTimeFormat("time"),
 			formatter.WithRawFields("sql", "query"),
-		)),
-		WithWriter(writer.Stdout()),
-		WithAddSource(true),
-		WithTimeFormat("time"),
-		WithTimezone("Asia/Shanghai"),
+		),
+		Output:     writer.Stdout(),
+		AddSource:  true,
+		TimeFormat: "time",
+		Timezone:   "Asia/Shanghai",
 	}
 }
 
@@ -37,16 +37,16 @@ func PresetDev() []Option {
 //   - INFO 级别
 //   - 不显示源代码位置
 //   - RFC3339 时间格式
-func PresetProd() []Option {
-	return []Option{
-		WithLevel("INFO"),
-		WithFormatter(formatter.JSON(
+func PresetProd() Config {
+	return Config{
+		Level: "INFO",
+		Formatter: formatter.JSON(
 			formatter.WithTimeFormat("rfc3339ms"),
-		)),
-		WithWriter(writer.Stdout()),
-		WithAddSource(false),
-		WithTimeFormat("rfc3339ms"),
-		WithTimezone("UTC"),
+		),
+		Output:     writer.Stdout(),
+		AddSource:  false,
+		TimeFormat: "rfc3339ms",
+		Timezone:   "UTC",
 	}
 }
 
@@ -55,7 +55,7 @@ func PresetProd() []Option {
 // 检测逻辑：
 //   - VSCODE_INJECTION=1 → 开发环境
 //   - 否则 → 生产环境
-func PresetAuto() []Option {
+func PresetAuto() Config {
 	if os.Getenv("VSCODE_INJECTION") == "1" {
 		return PresetDev()
 	}
@@ -71,18 +71,16 @@ func PresetAuto() []Option {
 //   - LOGM_OUTPUT: stdout, stderr, 或文件路径
 //   - LOGM_SOURCE: true, false
 //   - LOGM_TIME_FORMAT: time, datetime, rfc3339, rfc3339ms
-func PresetFromEnv() []Option {
-	// 基础预设
-	var opts []Option
+func PresetFromEnv() Config {
+	var cfg Config
 	if isDevEnv() {
-		opts = PresetDev()
+		cfg = PresetDev()
 	} else {
-		opts = PresetProd()
+		cfg = PresetProd()
 	}
 
-	// 环境变量覆盖
 	if level := os.Getenv("LOGM_LEVEL"); level != "" {
-		opts = append(opts, WithLevel(level))
+		cfg.Level = level
 	}
 
 	if format := os.Getenv("LOGM_FORMAT"); format != "" {
@@ -98,24 +96,25 @@ func PresetFromEnv() []Option {
 			f = formatter.ColorJSON()
 		}
 		if f != nil {
-			opts = append(opts, WithFormatter(f))
+			cfg.Formatter = f
 		}
 	}
 
 	if output := os.Getenv("LOGM_OUTPUT"); output != "" {
-		opts = append(opts, WithOutput(output))
+		if resolved := ParseOutput(output); resolved != nil {
+			cfg.Output = resolved
+		}
 	}
 
 	if source := os.Getenv("LOGM_SOURCE"); source != "" {
-		enable := strings.ToLower(source) == "true" || source == "1"
-		opts = append(opts, WithAddSource(enable))
+		cfg.AddSource = strings.ToLower(source) == "true" || source == "1"
 	}
 
 	if timeFormat := os.Getenv("LOGM_TIME_FORMAT"); timeFormat != "" {
-		opts = append(opts, WithTimeFormat(timeFormat))
+		cfg.TimeFormat = timeFormat
 	}
 
-	return opts
+	return cfg
 }
 
 // isDevEnv 检测是否为开发环境

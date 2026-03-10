@@ -52,3 +52,8 @@ func (m *MultiWriter) Sync() error {
 func (m *MultiWriter) Add(w Writer) {
 	m.writers = append(m.writers, w)
 }
+
+// Writers 返回当前聚合的输出目标副本。
+func (m *MultiWriter) Writers() []Writer {
+	return append([]Writer(nil), m.writers...)
+}

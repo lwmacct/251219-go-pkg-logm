@@ -6,16 +6,18 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	writerpkg "github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
 )
 
 // Handler 统一的 slog.Handler 实现。
 //
 // 将格式化（Formatter）和输出（Writer）分离，
-// 支持多目标输出和拦截器链。
+// 支持单输出 sink 和拦截器链。
 type Handler struct {
 	levelVar     *slog.LevelVar
 	formatter    Formatter
-	writers      []Writer
+	output       Writer
 	interceptors []Interceptor
 	addSource    bool
 	timeFormat   string
@@ -32,7 +34,7 @@ type Handler struct {
 type HandlerConfig struct {
 	LevelVar     *slog.LevelVar
 	Formatter    Formatter
-	Writers      []Writer
+	Output       Writer
 	Interceptors []Interceptor
 	AddSource    bool
 	TimeFormat   string
@@ -48,7 +50,7 @@ func NewHandler(cfg *HandlerConfig) *Handler {
 	h := &Handler{
 		levelVar:     cfg.LevelVar,
 		formatter:    cfg.Formatter,
-		writers:      cfg.Writers,
+		output:       cfg.Output,
 		interceptors: cfg.Interceptors,
 		addSource:    cfg.AddSource,
 		timeFormat:   cfg.TimeFormat,
@@ -62,6 +64,10 @@ func NewHandler(cfg *HandlerConfig) *Handler {
 
 	if h.location == nil {
 		h.location = time.Local
+	}
+
+	if h.output == nil {
+		h.output = writerpkg.Stdout()
 	}
 
 	return h
@@ -95,18 +101,16 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		return err
 	}
 
-	// 写入所有目标
+	// 写入输出目标
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for _, w := range h.writers {
-		if _, err := w.Write(data); err != nil {
-			// 写入失败继续尝试其他 writer
-			continue
-		}
+	if h.output == nil {
+		return nil
 	}
 
-	return nil
+	_, err = h.output.Write(data)
+	return err
 }
 
 // WithAttrs 实现 slog.Handler 接口。
@@ -136,7 +140,7 @@ func (h *Handler) clone() *Handler {
 	return &Handler{
 		levelVar:     h.levelVar,
 		formatter:    h.formatter,
-		writers:      h.writers,
+		output:       h.output,
 		interceptors: h.interceptors,
 		addSource:    h.addSource,
 		timeFormat:   h.timeFormat,
@@ -183,26 +187,20 @@ func (h *Handler) source(pc uintptr) *slog.Source {
 	}
 }
 
-// Close 关闭所有 Writer
+// Close 关闭输出 Writer
 func (h *Handler) Close() error {
-	var firstErr error
-	for _, w := range h.writers {
-		if err := w.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
+	if h.output != nil {
+		return h.output.Close()
 	}
-	return firstErr
+	return nil
 }
 
-// Sync 刷新所有 Writer 缓冲区
+// Sync 刷新输出 Writer 缓冲区
 func (h *Handler) Sync() error {
-	var firstErr error
-	for _, w := range h.writers {
-		if err := w.Sync(); err != nil && firstErr == nil {
-			firstErr = err
-		}
+	if h.output != nil {
+		return h.output.Sync()
 	}
-	return firstErr
+	return nil
 }
 
 // SetLevel 动态设置日志级别

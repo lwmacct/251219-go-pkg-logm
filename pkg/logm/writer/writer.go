@@ -10,8 +10,8 @@
 //
 //	import "github.com/.../logger/writer"
 //
-//	logm.Init(logm.WithWriter(writer.Stdout()))
-//	logm.Init(logm.WithWriter(writer.File("/var/log/app.log", writer.WithRotation(100, 7))))
+//	logm.Init(logm.Config{Output: writer.Stdout()})
+//	logm.Init(logm.Config{Output: writer.File("/var/log/app.log", writer.WithRotation(100, 7))})
 package writer
 
 import "io"

@@ -142,9 +142,25 @@ func TestAsync_DefaultBufferSize(t *testing.T) {
 	// bufferSize <= 0 should default to 1000
 	w := Async(inner, 0)
 	require.NotNil(t, w)
-	assert.Equal(t, 1000, cap(w.ch))
+	assert.Equal(t, 1000, cap(w.requests))
 
 	err := w.Close()
+	require.NoError(t, err)
+}
+
+func TestAsync_Sync(t *testing.T) {
+	var buf bytes.Buffer
+	inner := &mockWriter{buf: &buf}
+
+	w := Async(inner, 100)
+	_, err := w.Write([]byte("sync data"))
+	require.NoError(t, err)
+
+	err = w.Sync()
+	require.NoError(t, err)
+	assert.Equal(t, "sync data", buf.String())
+
+	err = w.Close()
 	require.NoError(t, err)
 }
 
@@ -285,6 +301,7 @@ type mockWriter struct {
 	buf    *bytes.Buffer
 	mu     *sync.Mutex
 	closed bool
+	synced bool
 }
 
 func (m *mockWriter) Write(p []byte) (n int, err error) {
@@ -301,5 +318,6 @@ func (m *mockWriter) Close() error {
 }
 
 func (m *mockWriter) Sync() error {
+	m.synced = true
 	return nil
 }

@@ -21,7 +21,7 @@ func TestLogWithPC(t *testing.T) {
 	handler := NewHandler(&HandlerConfig{
 		LevelVar:   &slog.LevelVar{},
 		Formatter:  formatter.Text(),
-		Writers:    []Writer{stdoutWriter},
+		Output:     stdoutWriter,
 		AddSource:  true,
 		TimeFormat: "15:04:05",
 	})
@@ -58,7 +58,7 @@ func TestLogWithPC_ZeroPC(t *testing.T) {
 	handler := NewHandler(&HandlerConfig{
 		LevelVar:   &slog.LevelVar{},
 		Formatter:  formatter.Text(),
-		Writers:    []Writer{stdoutWriter},
+		Output:     stdoutWriter,
 		AddSource:  true,
 		TimeFormat: "15:04:05",
 	})
@@ -86,7 +86,7 @@ func TestLogWithPC_LevelDisabled(t *testing.T) {
 	handler := NewHandler(&HandlerConfig{
 		LevelVar:   levelVar,
 		Formatter:  formatter.Text(),
-		Writers:    []Writer{stdoutWriter},
+		Output:     stdoutWriter,
 		AddSource:  true,
 		TimeFormat: "15:04:05",
 	})
@@ -113,7 +113,7 @@ func TestLogWithPC_WithCallerPC(t *testing.T) {
 	handler := NewHandler(&HandlerConfig{
 		LevelVar:   &slog.LevelVar{},
 		Formatter:  formatter.Text(),
-		Writers:    []Writer{stdoutWriter},
+		Output:     stdoutWriter,
 		AddSource:  true,
 		TimeFormat: "15:04:05",
 	})
