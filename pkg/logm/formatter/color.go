@@ -102,7 +102,7 @@ func (f *ColorTextFormatter) writeAttrs(buf *bytes.Buffer, attrs []slog.Attr, gr
 	}
 	prefix += prefixSb140.String()
 
-	for _, attr := range attrs {
+	for _, attr := range normalizeAttrs(attrs) {
 		if attr.Key == "" {
 			continue
 		}
@@ -170,7 +170,7 @@ func (f *ColorTextFormatter) writeValue(buf *bytes.Buffer, v slog.Value, keyPath
 
 	case slog.KindGroup:
 		// 展开分组为平铺格式
-		attrs := v.Group()
+		attrs := normalizeAttrs(v.Group())
 		for i, attr := range attrs {
 			if i > 0 {
 				buf.WriteByte(' ')

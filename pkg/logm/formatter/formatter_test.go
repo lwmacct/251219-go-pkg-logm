@@ -74,6 +74,23 @@ func TestJSONFormatter_WithGroups(t *testing.T) {
 	assert.Contains(t, output, `"method":"GET"`)
 }
 
+func TestJSONFormatter_InlineEmptyKeyGroup(t *testing.T) {
+	f := JSON()
+	r := newTestRecord("test",
+		slog.Group("",
+			slog.String("user", "alice"),
+			slog.Int("age", 30),
+		),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+	assert.Contains(t, output, `"user":"alice"`)
+	assert.Contains(t, output, `"age":30`)
+}
+
 func TestJSONFormatter_WithSource(t *testing.T) {
 	f := JSON()
 	r := newTestRecord("test")
@@ -187,6 +204,23 @@ func TestTextFormatter_WithAttrs(t *testing.T) {
 	assert.Contains(t, output, "count=42")
 }
 
+func TestTextFormatter_InlineEmptyKeyGroup(t *testing.T) {
+	f := Text()
+	r := newTestRecord("test",
+		slog.Group("",
+			slog.String("user", "alice"),
+			slog.Int("age", 30),
+		),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+	assert.Contains(t, output, "user=alice")
+	assert.Contains(t, output, "age=30")
+}
+
 func TestTextFormatter_QuotesSpaces(t *testing.T) {
 	f := Text()
 	r := newTestRecord("message with spaces")
@@ -264,6 +298,23 @@ func TestColorTextFormatter_JSONFlatten(t *testing.T) {
 	// JSON 字符串应该被展开
 	assert.Contains(t, output, "data.user")
 	assert.Contains(t, output, "alice")
+}
+
+func TestColorTextFormatter_InlineEmptyKeyGroup(t *testing.T) {
+	f := ColorText(WithColor(false))
+	r := newTestRecord("test",
+		slog.Group("",
+			slog.String("user", "alice"),
+			slog.Int("age", 30),
+		),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+	assert.Contains(t, output, "user=\"alice\"")
+	assert.Contains(t, output, "age=30")
 }
 
 func TestColorTextFormatter_ErrorAttr(t *testing.T) {
@@ -508,6 +559,23 @@ func TestColorJSONFormatter_WithAttrs(t *testing.T) {
 	assert.Contains(t, output, "42")
 	assert.Contains(t, output, `"enabled":`)
 	assert.Contains(t, output, "true")
+}
+
+func TestColorJSONFormatter_InlineEmptyKeyGroup(t *testing.T) {
+	f := ColorJSON(WithColor(false))
+	r := newTestRecord("test",
+		slog.Group("",
+			slog.String("user", "alice"),
+			slog.Int("age", 30),
+		),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+	assert.Contains(t, output, `"user":"alice"`)
+	assert.Contains(t, output, `"age":30`)
 }
 
 func TestColorJSONFormatter_ErrorAttr(t *testing.T) {

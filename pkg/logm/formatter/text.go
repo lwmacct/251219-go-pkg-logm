@@ -67,7 +67,7 @@ func (f *TextFormatter) writeAttrs(buf *bytes.Buffer, attrs []slog.Attr, groups 
 	}
 	prefix += prefixSb63.String()
 
-	for _, attr := range attrs {
+	for _, attr := range normalizeAttrs(attrs) {
 		if attr.Key == "" {
 			continue
 		}
@@ -120,7 +120,7 @@ func (f *TextFormatter) writeValue(buf *bytes.Buffer, v slog.Value, prefix strin
 		writeTextValue(buf, formatTime(t, f.opts.TimeFormat))
 	case slog.KindGroup:
 		// 展开分组
-		attrs := v.Group()
+		attrs := normalizeAttrs(v.Group())
 		for i, attr := range attrs {
 			if i > 0 {
 				buf.WriteByte(' ')

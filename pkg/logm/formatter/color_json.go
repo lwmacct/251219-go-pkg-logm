@@ -114,7 +114,7 @@ func (f *ColorJSONFormatter) writeAttrs(buf *bytes.Buffer, attrs []slog.Attr, gr
 		openGroups++
 	}
 
-	for _, attr := range attrs {
+	for _, attr := range normalizeAttrs(attrs) {
 		if attr.Key == "" {
 			continue
 		}
@@ -172,7 +172,7 @@ func (f *ColorJSONFormatter) writeValue(buf *bytes.Buffer, v slog.Value) {
 
 	case slog.KindGroup:
 		buf.WriteByte('{')
-		attrs := v.Group()
+		attrs := normalizeAttrs(v.Group())
 		for i, attr := range attrs {
 			if i > 0 {
 				buf.WriteByte(',')

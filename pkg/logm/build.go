@@ -77,7 +77,7 @@ func resolveLocation(location *time.Location, timezone string) *time.Location {
 
 func resolveFormatter(current Formatter, timeFormat, timezone string) Formatter {
 	if current != nil {
-		return current
+		return formatterpkg.CloneWithTimeOptions(current, timeFormat, timezone)
 	}
 	return formatterpkg.Text(
 		formatterpkg.WithTimeFormat(timeFormat),

@@ -5,7 +5,9 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/formatter"
 	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
@@ -59,6 +61,20 @@ func TestNew_WithFormatter(t *testing.T) {
 		Level:     "DEBUG",
 	})
 	assert.NotNil(t, log)
+}
+
+func TestNew_WithFormatterRespectsTimeFormatOverride(t *testing.T) {
+	var buf bytes.Buffer
+
+	log := New(Config{
+		Formatter:  formatter.Text(),
+		TimeFormat: "time",
+		Output:     &testWriter{buf: &buf},
+	})
+
+	log.Info("hello")
+
+	assert.Regexp(t, `time=\d{2}:\d{2}:\d{2} level=INFO msg=hello`, buf.String())
 }
 
 func TestNew_WithWriter(t *testing.T) {
@@ -311,6 +327,43 @@ func TestHandler_WithGroup(t *testing.T) {
 	assert.Contains(t, output, "method=POST")
 }
 
+func TestHandler_SharedLockAcrossDerivedLoggers(t *testing.T) {
+	slow := &slowTestWriter{}
+	h := NewHandler(&HandlerConfig{
+		Formatter: formatter.Text(),
+		Output:    slow,
+	})
+
+	loggerA := slog.New(h).With("logger", "a")
+	loggerB := slog.New(h).With("logger", "b")
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		loggerA.Info("AAAA")
+	}()
+	go func() {
+		defer wg.Done()
+		loggerB.Info("BBBB")
+	}()
+
+	wg.Wait()
+
+	lines := strings.Split(strings.TrimSpace(slow.buf.String()), "\n")
+	require.Len(t, lines, 2)
+	for _, line := range lines {
+		assert.Contains(t, line, "time=")
+		assert.Contains(t, line, "level=INFO")
+		assert.True(t,
+			(strings.Contains(line, "msg=AAAA") && strings.Contains(line, "logger=a")) ||
+				(strings.Contains(line, "msg=BBBB") && strings.Contains(line, "logger=b")),
+			"unexpected line: %s", line,
+		)
+	}
+}
+
 func TestHandler_LevelFilter(t *testing.T) {
 	var buf bytes.Buffer
 	stdoutWriter := &testWriter{buf: &buf}
@@ -493,6 +546,26 @@ func (w *testWriter) Close() error {
 }
 
 func (w *testWriter) Sync() error {
+	return nil
+}
+
+type slowTestWriter struct {
+	buf bytes.Buffer
+}
+
+func (w *slowTestWriter) Write(p []byte) (n int, err error) {
+	for _, b := range p {
+		w.buf.WriteByte(b)
+		time.Sleep(50 * time.Microsecond)
+	}
+	return len(p), nil
+}
+
+func (w *slowTestWriter) Close() error {
+	return nil
+}
+
+func (w *slowTestWriter) Sync() error {
 	return nil
 }
 

@@ -78,7 +78,7 @@ func (f *JSONFormatter) writeAttrs(buf *bytes.Buffer, attrs []slog.Attr, groups 
 
 	// 写入属性
 	first := len(groups) == 0
-	for _, attr := range attrs {
+	for _, attr := range normalizeAttrs(attrs) {
 		if attr.Key == "" {
 			continue
 		}
@@ -137,7 +137,7 @@ func (f *JSONFormatter) writeValue(buf *bytes.Buffer, v slog.Value) {
 		writeJSONString(buf, t.Format(time.RFC3339Nano))
 	case slog.KindGroup:
 		buf.WriteByte('{')
-		attrs := v.Group()
+		attrs := normalizeAttrs(v.Group())
 		for i, attr := range attrs {
 			if i > 0 {
 				buf.WriteByte(',')

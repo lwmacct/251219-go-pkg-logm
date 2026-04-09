@@ -27,7 +27,7 @@ type Handler struct {
 	groups []string
 	attrs  []slog.Attr
 
-	mu sync.Mutex
+	mu *sync.Mutex
 }
 
 // HandlerConfig Handler 配置
@@ -55,6 +55,7 @@ func NewHandler(cfg *HandlerConfig) *Handler {
 		addSource:    cfg.AddSource,
 		timeFormat:   cfg.TimeFormat,
 		location:     cfg.Location,
+		mu:           &sync.Mutex{},
 	}
 
 	if h.levelVar == nil {
@@ -147,6 +148,7 @@ func (h *Handler) clone() *Handler {
 		location:     h.location,
 		groups:       append([]string{}, h.groups...),
 		attrs:        append([]slog.Attr{}, h.attrs...),
+		mu:           h.mu,
 	}
 }
 

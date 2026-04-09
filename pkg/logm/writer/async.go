@@ -1,7 +1,13 @@
 package writer
 
 import (
+	"errors"
 	"sync"
+)
+
+var (
+	ErrAsyncWriterClosed = errors.New("async writer is closed")
+	ErrAsyncWriterFull   = errors.New("async writer buffer is full")
 )
 
 type asyncRequest struct {
@@ -69,7 +75,7 @@ func (a *AsyncWriter) Write(p []byte) (n int, err error) {
 	defer a.mu.Unlock()
 
 	if a.closed {
-		return 0, nil
+		return 0, ErrAsyncWriterClosed
 	}
 
 	// 复制数据避免竞态
@@ -80,8 +86,7 @@ func (a *AsyncWriter) Write(p []byte) (n int, err error) {
 	case a.requests <- asyncRequest{data: data}:
 		return len(p), nil
 	default:
-		// 缓冲区满，丢弃日志（或可选择阻塞）
-		return len(p), nil
+		return 0, ErrAsyncWriterFull
 	}
 }
 

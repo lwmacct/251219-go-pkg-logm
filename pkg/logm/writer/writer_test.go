@@ -194,10 +194,31 @@ func TestAsync_WriteAfterClose(t *testing.T) {
 	err := w.Close()
 	require.NoError(t, err)
 
-	// 关闭后写入应该返回成功但不写入数据
+	// 关闭后写入应该返回明确错误
 	n, err := w.Write([]byte("after close"))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrAsyncWriterClosed)
 	assert.Equal(t, 0, n)
+}
+
+func TestAsync_WriteBufferFull(t *testing.T) {
+	inner := &blockingWriter{release: make(chan struct{})}
+	w := Async(inner, 1)
+
+	_, err := w.Write([]byte("first"))
+	require.NoError(t, err)
+
+	var fullErr error
+	for _, payload := range [][]byte{[]byte("second"), []byte("third"), []byte("fourth")} {
+		_, err = w.Write(payload)
+		if err != nil {
+			fullErr = err
+			break
+		}
+	}
+	require.ErrorIs(t, fullErr, ErrAsyncWriterFull)
+
+	close(inner.release)
+	require.NoError(t, w.Close())
 }
 
 func TestAsync_ConcurrentWrite(t *testing.T) {
@@ -319,5 +340,22 @@ func (m *mockWriter) Close() error {
 
 func (m *mockWriter) Sync() error {
 	m.synced = true
+	return nil
+}
+
+type blockingWriter struct {
+	release chan struct{}
+}
+
+func (b *blockingWriter) Write(p []byte) (int, error) {
+	<-b.release
+	return len(p), nil
+}
+
+func (b *blockingWriter) Close() error {
+	return nil
+}
+
+func (b *blockingWriter) Sync() error {
 	return nil
 }
