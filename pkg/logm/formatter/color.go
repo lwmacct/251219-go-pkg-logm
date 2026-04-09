@@ -193,6 +193,12 @@ func (f *ColorTextFormatter) writeAny(buf *bytes.Buffer, v any, keyPath string) 
 		return
 	}
 
+	// 特殊处理 error，避免 json.Marshal(error) 变成 {}
+	if err, ok := v.(error); ok {
+		f.writeColored(buf, f.opts.ColorScheme.String, strconv.Quote(err.Error()))
+		return
+	}
+
 	// 尝试 JSON 序列化后平铺
 	if f.flattenJSON {
 		data, err := json.Marshal(v)

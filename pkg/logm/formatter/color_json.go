@@ -196,6 +196,12 @@ func (f *ColorJSONFormatter) writeAny(buf *bytes.Buffer, v any) {
 		return
 	}
 
+	// 特殊处理 error，避免 json.Marshal(error) 变成 {}
+	if err, ok := v.(error); ok {
+		f.writeColoredString(buf, f.opts.ColorScheme.String, err.Error())
+		return
+	}
+
 	data, err := json.Marshal(v)
 	if err != nil {
 		f.writeColoredString(buf, ColorRed, "<error>")

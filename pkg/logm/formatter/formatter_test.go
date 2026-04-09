@@ -266,6 +266,20 @@ func TestColorTextFormatter_JSONFlatten(t *testing.T) {
 	assert.Contains(t, output, "alice")
 }
 
+func TestColorTextFormatter_ErrorAttr(t *testing.T) {
+	f := ColorText(WithColor(false))
+	r := newTestRecord("operation failed",
+		slog.Any("error", errors.New("database connection failed")),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+	assert.Contains(t, output, `error="database connection failed"`)
+	assert.NotContains(t, output, `error={}`)
+}
+
 func TestColorTextFormatter_LevelColors(t *testing.T) {
 	tests := []struct {
 		level slog.Level
@@ -494,6 +508,20 @@ func TestColorJSONFormatter_WithAttrs(t *testing.T) {
 	assert.Contains(t, output, "42")
 	assert.Contains(t, output, `"enabled":`)
 	assert.Contains(t, output, "true")
+}
+
+func TestColorJSONFormatter_ErrorAttr(t *testing.T) {
+	f := ColorJSON(WithColor(false))
+	r := newTestRecord("operation failed",
+		slog.Any("error", errors.New("database connection failed")),
+	)
+
+	data, err := f.Format(r)
+	require.NoError(t, err)
+
+	output := string(data)
+	assert.Contains(t, output, `"error":"database connection failed"`)
+	assert.NotContains(t, output, `"error":{}`)
 }
 
 func TestColorJSONFormatter_WithSource(t *testing.T) {
