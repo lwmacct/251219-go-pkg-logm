@@ -5,9 +5,9 @@
 //
 // # Architecture
 //
-// logm 包采用标准 slog.Handler + Writer 架构：
-//   - Handler: 基于标准库 TextHandler / JSONHandler 组装
-//   - ReplaceAttr: 统一处理时间、source、error 和 JSON 展开
+// logm 包采用 Handler + Formatter + Writer 架构：
+//   - Handler: 统一的 slog.Handler 实现，处理日志记录
+//   - Formatter: 格式化器接口，决定日志输出格式（JSON/Text/Color）
 //   - Writer: 输出目标接口，支持多种输出（Stdout/File/Async/Multi）
 //
 // # Quick Start
@@ -35,9 +35,8 @@
 // 使用 Config 进行精确配置：
 //
 //	logm.Init(logm.Config{
-//	    Level:  "DEBUG",
-//	    Format: logm.FormatText,
-//	    Color:  true,
+//	    Level:     "DEBUG",
+//	    Formatter: formatter.ColorText(),
 //	    Output: writer.Multi(
 //	        writer.Stdout(),
 //	        writer.File("/var/log/app.log", writer.WithRotation(100, 7)),
@@ -56,7 +55,16 @@
 //
 // logm 会自动用 slog.NewMultiHandler 同时分发到两路 Handler。
 //
-// # Writers
+// # Sub-packages
+//
+// formatter 子包提供格式化器实现：
+//
+//	import "github.com/.../logm/formatter"
+//
+//	formatter.JSON()       // JSON 格式，适合生产环境
+//	formatter.Text()       // 键值对格式，兼容传统工具
+//	formatter.ColorText()  // 彩色文本，适合开发环境
+//	formatter.ColorJSON()  // 彩色 JSON，适合终端调试
 //
 // writer 子包提供输出目标实现：
 //
@@ -74,17 +82,15 @@
 //	logm.SetLevel("DEBUG")  // 开启调试日志
 //	logm.SetLevel("ERROR")  // 只显示错误
 //
-// # ReplaceAttr
+// # Interceptors
 //
-// 使用 ReplaceAttr 统一改写结构化字段：
+// 使用拦截器添加通用字段或过滤日志：
 //
 //	cfg := logm.PresetDefault()
-//	cfg.ReplaceAttr = func(groups []string, attr slog.Attr) slog.Attr {
-//	    if attr.Key == "trace_id" && attr.Value.String() == "" {
-//	        return slog.String("trace_id", "missing")
-//	    }
-//	    return attr
-//	}
+//	cfg.Interceptors = append(cfg.Interceptors, func(ctx context.Context, r *logm.Record) *logm.Record {
+//	    r.Attrs = append(r.Attrs, slog.String("trace_id", getTraceID(ctx)))
+//	    return r
+//	})
 //	logm.Init(cfg)
 //
 // # Context Integration

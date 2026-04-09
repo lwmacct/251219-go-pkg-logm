@@ -4,20 +4,19 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
+	formatterpkg "github.com/lwmacct/251219-go-pkg-logm/pkg/logm/formatter"
+	writerpkg "github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
 )
 
 type resolvedOptions struct {
 	levelVar     *slog.LevelVar
-	format       Format
+	formatter    Formatter
 	output       Writer
 	slogHandlers []slog.Handler
+	interceptors []Interceptor
 	addSource    bool
 	timeFormat   string
 	location     *time.Location
-	color        bool
-	expandJSON   bool
-	replaceAttr  func(groups []string, attr slog.Attr) slog.Attr
 }
 
 func buildHandlerWithLevelVar(fallbackLevelVar *slog.LevelVar, cfg Config) *builtHandler {
@@ -45,15 +44,13 @@ func normalizeConfig(cfg Config, fallbackLevelVar *slog.LevelVar) *resolvedOptio
 
 	return &resolvedOptions{
 		levelVar:     levelVar,
-		format:       normalizeFormat(cfg.Format),
+		formatter:    resolveFormatter(cfg.Formatter, cfg.TimeFormat, cfg.Timezone),
 		output:       resolveOutput(cfg.Output),
 		slogHandlers: append([]slog.Handler(nil), cfg.SlogHandlers...),
+		interceptors: append([]Interceptor(nil), cfg.Interceptors...),
 		addSource:    cfg.AddSource,
 		timeFormat:   cfg.TimeFormat,
 		location:     location,
-		color:        cfg.Color,
-		expandJSON:   cfg.ExpandJSON,
-		replaceAttr:  cfg.ReplaceAttr,
 	}
 }
 
@@ -78,9 +75,19 @@ func resolveLocation(location *time.Location, timezone string) *time.Location {
 	return time.Local
 }
 
+func resolveFormatter(current Formatter, timeFormat, timezone string) Formatter {
+	if current != nil {
+		return current
+	}
+	return formatterpkg.Text(
+		formatterpkg.WithTimeFormat(timeFormat),
+		formatterpkg.WithTimezone(timezone),
+	)
+}
+
 func resolveOutput(output Writer) Writer {
 	if output == nil {
-		return writer.Stdout()
+		return writerpkg.Stdout()
 	}
 	return output
 }
@@ -98,15 +105,13 @@ func loadTimezone(tz string) *time.Location {
 
 func buildHandler(resolved *resolvedOptions) *builtHandler {
 	base := NewHandler(&HandlerConfig{
-		LevelVar:    resolved.levelVar,
-		Format:      resolved.format,
-		Output:      resolved.output,
-		AddSource:   resolved.addSource,
-		TimeFormat:  resolved.timeFormat,
-		Location:    resolved.location,
-		Color:       resolved.color,
-		ExpandJSON:  resolved.expandJSON,
-		ReplaceAttr: resolved.replaceAttr,
+		LevelVar:     resolved.levelVar,
+		Formatter:    resolved.formatter,
+		Output:       resolved.output,
+		Interceptors: resolved.interceptors,
+		AddSource:    resolved.addSource,
+		TimeFormat:   resolved.timeFormat,
+		Location:     resolved.location,
 	})
 
 	handlers := make([]slog.Handler, 0, 1+len(resolved.slogHandlers))

@@ -8,48 +8,26 @@ import (
 	writerpkg "github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
 )
 
-// Format 定义主输出格式。
-type Format string
-
-const (
-	FormatText Format = "text"
-	FormatJSON Format = "json"
-)
-
 // Config 定义 logger 的完整配置。
 type Config struct {
 	Level        string
 	LevelVar     *slog.LevelVar
-	Format       Format
+	Formatter    Formatter
 	Output       Writer
 	SlogHandlers []slog.Handler
 	AddSource    bool
 	TimeFormat   string
 	Timezone     string
 	Location     *time.Location
-	Color        bool
-	ExpandJSON   bool
-	ReplaceAttr  func(groups []string, attr slog.Attr) slog.Attr
+	Interceptors []Interceptor
 }
 
 // PresetDefault 返回默认配置。
 func PresetDefault() Config {
 	return Config{
 		Level:      "INFO",
-		Format:     FormatText,
 		TimeFormat: "datetime",
 		Timezone:   "Asia/Shanghai",
-	}
-}
-
-func normalizeFormat(format Format) Format {
-	switch strings.ToLower(string(format)) {
-	case "", string(FormatText):
-		return FormatText
-	case string(FormatJSON):
-		return FormatJSON
-	default:
-		return FormatText
 	}
 }
 
