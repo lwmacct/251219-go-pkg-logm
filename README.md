@@ -53,14 +53,16 @@ func main() {
 type Config struct {
     Level        string
     LevelVar     *slog.LevelVar
-    Formatter    logm.Formatter
+    Format       logm.Format
     Output       logm.Writer
     SlogHandlers []slog.Handler
     AddSource    bool
     TimeFormat   string
     Timezone     string
     Location     *time.Location
-    Interceptors []logm.Interceptor
+    Color        bool
+    ExpandJSON   bool
+    ReplaceAttr  func(groups []string, attr slog.Attr) slog.Attr
 }
 ```
 
@@ -103,14 +105,14 @@ import (
 	"log/slog"
 
 	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm"
-	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/formatter"
 	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
 )
 
 func main() {
 	cfg := logm.Config{
-		Level:     "DEBUG",
-		Formatter: formatter.ColorText(),
+		Level:  "DEBUG",
+		Format: logm.FormatText,
+		Color:  true,
 		Output: writer.Multi(
 			writer.Stdout(),
 			writer.File("/var/log/app.log", writer.WithRotation(100, 7)),
@@ -118,6 +120,7 @@ func main() {
 		AddSource:  true,
 		TimeFormat: "time",
 		Timezone:   "Asia/Shanghai",
+		ExpandJSON: true,
 	}
 
 	logm.MustInit(cfg)
@@ -182,7 +185,7 @@ func main() {
 
 上面这条日志会：
 
-- 走 `logm` 的文本输出到终端
+- 走 `logm` 的主输出到终端
 - 同时走标准库 `JSONHandler` 输出到文件
 
 ## 动态级别
@@ -227,20 +230,37 @@ log.Info("processing request")
 - `writer.Async(w, bufferSize)`
 - `writer.Multi(w1, w2, ...)`
 
-## 格式化子包
+## 输出格式
 
-`pkg/logm/formatter` 提供常用格式化器：
+- `FormatText`：标准库 `TextHandler`
+- `FormatJSON`：标准库 `JSONHandler`
+- `Color: true`：在输出层追加终端颜色
+- `ExpandJSON: true`：将 JSON 对象字符串展开为结构化字段
 
-- `formatter.Text()`
-- `formatter.JSON()`
-- `formatter.ColorText()`
-- `formatter.ColorJSON()`
+## 字段改写
+
+`logm` 默认会统一处理这些字段：
+
+- `time`：按 `TimeFormat` 和 `Timezone` 输出
+- `source`：裁剪工作区路径
+- `error`：统一输出为错误字符串
+
+如需自定义，可使用 `ReplaceAttr`：
+
+```go
+cfg := logm.PresetDefault()
+cfg.ReplaceAttr = func(groups []string, attr slog.Attr) slog.Attr {
+	if attr.Key == "service" && attr.Value.String() == "" {
+		return slog.String("service", "unknown")
+	}
+	return attr
+}
+```
 
 ## 文档
 
 ```bash
 go doc github.com/lwmacct/251219-go-pkg-logm/pkg/logm
-go doc github.com/lwmacct/251219-go-pkg-logm/pkg/logm/formatter
 go doc github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer
 ```
 

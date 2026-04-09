@@ -4,7 +4,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/formatter"
 	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
 )
 
@@ -18,15 +17,14 @@ import (
 //   - sql/query 字段不加引号（方便阅读 SQL）
 func PresetDev() Config {
 	return Config{
-		Level: "DEBUG",
-		Formatter: formatter.ColorText(
-			formatter.WithTimeFormat("time"),
-			formatter.WithRawFields("sql", "query"),
-		),
+		Level:      "DEBUG",
+		Format:     FormatText,
 		Output:     writer.Stdout(),
 		AddSource:  true,
 		TimeFormat: "time",
 		Timezone:   "Asia/Shanghai",
+		Color:      true,
+		ExpandJSON: true,
 	}
 }
 
@@ -39,10 +37,8 @@ func PresetDev() Config {
 //   - RFC3339 时间格式
 func PresetProd() Config {
 	return Config{
-		Level: "INFO",
-		Formatter: formatter.JSON(
-			formatter.WithTimeFormat("rfc3339ms"),
-		),
+		Level:      "INFO",
+		Format:     FormatJSON,
 		Output:     writer.Stdout(),
 		AddSource:  false,
 		TimeFormat: "rfc3339ms",
@@ -84,19 +80,19 @@ func PresetFromEnv() Config {
 	}
 
 	if format := os.Getenv("LOGM_FORMAT"); format != "" {
-		var f Formatter
 		switch strings.ToLower(format) {
 		case "json":
-			f = formatter.JSON()
+			cfg.Format = FormatJSON
+			cfg.Color = false
 		case "text":
-			f = formatter.Text()
+			cfg.Format = FormatText
+			cfg.Color = false
 		case "color_text":
-			f = formatter.ColorText()
+			cfg.Format = FormatText
+			cfg.Color = true
 		case "color_json":
-			f = formatter.ColorJSON()
-		}
-		if f != nil {
-			cfg.Formatter = f
+			cfg.Format = FormatJSON
+			cfg.Color = true
 		}
 	}
 

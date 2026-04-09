@@ -1,44 +1,34 @@
 package logm
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
-	"runtime"
-	"sync"
+	"sort"
+	"strings"
 	"time"
 
 	writerpkg "github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
 )
 
-// Handler 统一的 slog.Handler 实现。
-//
-// 将格式化（Formatter）和输出（Writer）分离，
-// 支持单输出 sink 和拦截器链。
+// Handler 仅负责包装标准 slog handler，并托管底层输出资源。
 type Handler struct {
-	levelVar     *slog.LevelVar
-	formatter    Formatter
-	output       Writer
-	interceptors []Interceptor
-	addSource    bool
-	timeFormat   string
-	location     *time.Location
-
-	// 继承的分组和属性
-	groups []string
-	attrs  []slog.Attr
-
-	mu sync.Mutex
+	next    slog.Handler
+	managed []managedHandler
 }
 
-// HandlerConfig Handler 配置
+// HandlerConfig Handler 配置。
 type HandlerConfig struct {
-	LevelVar     *slog.LevelVar
-	Formatter    Formatter
-	Output       Writer
-	Interceptors []Interceptor
-	AddSource    bool
-	TimeFormat   string
-	Location     *time.Location
+	LevelVar    *slog.LevelVar
+	Format      Format
+	Output      Writer
+	AddSource   bool
+	TimeFormat  string
+	Location    *time.Location
+	Color       bool
+	ExpandJSON  bool
+	ReplaceAttr func(groups []string, attr slog.Attr) slog.Attr
 }
 
 // NewHandler 创建新的 Handler。
@@ -47,70 +37,55 @@ func NewHandler(cfg *HandlerConfig) *Handler {
 		cfg = &HandlerConfig{}
 	}
 
-	h := &Handler{
-		levelVar:     cfg.LevelVar,
-		formatter:    cfg.Formatter,
-		output:       cfg.Output,
-		interceptors: cfg.Interceptors,
-		addSource:    cfg.AddSource,
-		timeFormat:   cfg.TimeFormat,
-		location:     cfg.Location,
+	levelVar := cfg.LevelVar
+	if levelVar == nil {
+		levelVar = &slog.LevelVar{}
+		levelVar.Set(slog.LevelInfo)
 	}
 
-	if h.levelVar == nil {
-		h.levelVar = &slog.LevelVar{}
-		h.levelVar.Set(slog.LevelInfo)
+	location := cfg.Location
+	if location == nil {
+		location = time.Local
 	}
 
-	if h.location == nil {
-		h.location = time.Local
+	output := cfg.Output
+	if output == nil {
+		output = writerpkg.Stdout()
 	}
 
-	if h.output == nil {
-		h.output = writerpkg.Stdout()
+	baseWriter := output
+	if cfg.Color {
+		baseWriter = &colorWriter{next: output}
 	}
 
-	return h
+	options := &slog.HandlerOptions{
+		AddSource:   cfg.AddSource,
+		Level:       levelVar,
+		ReplaceAttr: buildReplaceAttr(location, cfg.TimeFormat, cfg.ExpandJSON, cfg.ReplaceAttr),
+	}
+
+	var next slog.Handler
+	switch normalizeFormat(cfg.Format) {
+	case FormatJSON:
+		next = slog.NewJSONHandler(baseWriter, options)
+	default:
+		next = slog.NewTextHandler(baseWriter, options)
+	}
+
+	return &Handler{
+		next:    next,
+		managed: []managedHandler{baseWriter},
+	}
 }
 
 // Enabled 实现 slog.Handler 接口。
 func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
-	return level >= h.levelVar.Level()
+	return h.next.Enabled(ctx, level)
 }
 
 // Handle 实现 slog.Handler 接口。
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
-	// 转换为 Record
-	rec := h.toRecord(r)
-
-	// 应用拦截器
-	for _, interceptor := range h.interceptors {
-		rec = interceptor(ctx, rec)
-		if rec == nil {
-			return nil // 日志被过滤
-		}
-	}
-
-	// 格式化
-	if h.formatter == nil {
-		return nil
-	}
-
-	data, err := h.formatter.Format(rec)
-	if err != nil {
-		return err
-	}
-
-	// 写入输出目标
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if h.output == nil {
-		return nil
-	}
-
-	_, err = h.output.Write(data)
-	return err
+	return h.next.Handle(ctx, r)
 }
 
 // WithAttrs 实现 slog.Handler 接口。
@@ -118,10 +93,10 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	if len(attrs) == 0 {
 		return h
 	}
-
-	clone := h.clone()
-	clone.attrs = append(clone.attrs, attrs...)
-	return clone
+	return &Handler{
+		next:    h.next.WithAttrs(attrs),
+		managed: h.managed,
+	}
 }
 
 // WithGroup 实现 slog.Handler 接口。
@@ -129,86 +104,179 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-
-	clone := h.clone()
-	clone.groups = append(clone.groups, name)
-	return clone
-}
-
-// clone 创建 Handler 的浅拷贝
-func (h *Handler) clone() *Handler {
 	return &Handler{
-		levelVar:     h.levelVar,
-		formatter:    h.formatter,
-		output:       h.output,
-		interceptors: h.interceptors,
-		addSource:    h.addSource,
-		timeFormat:   h.timeFormat,
-		location:     h.location,
-		groups:       append([]string{}, h.groups...),
-		attrs:        append([]slog.Attr{}, h.attrs...),
+		next:    h.next.WithGroup(name),
+		managed: h.managed,
 	}
 }
 
-// toRecord 将 slog.Record 转换为 Record
-func (h *Handler) toRecord(r slog.Record) *Record {
-	rec := &Record{
-		Time:    r.Time.In(h.location),
-		Level:   r.Level,
-		Message: r.Message,
-		Groups:  h.groups,
-	}
-
-	// 添加继承的属性
-	rec.Attrs = append(rec.Attrs, h.attrs...)
-
-	// 添加当前记录的属性
-	r.Attrs(func(a slog.Attr) bool {
-		rec.Attrs = append(rec.Attrs, a)
-		return true
-	})
-
-	// 提取源代码位置
-	if h.addSource && r.PC != 0 {
-		rec.Source = h.source(r.PC)
-	}
-
-	return rec
-}
-
-// source 从 PC 获取源代码位置
-func (h *Handler) source(pc uintptr) *slog.Source {
-	fs := runtime.CallersFrames([]uintptr{pc})
-	f, _ := fs.Next()
-	return &slog.Source{
-		Function: f.Function,
-		File:     f.File,
-		Line:     f.Line,
-	}
-}
-
-// Close 关闭输出 Writer
+// Close 关闭输出 Writer。
 func (h *Handler) Close() error {
-	if h.output != nil {
-		return h.output.Close()
-	}
-	return nil
+	return closeManagedHandlers(h.managed)
 }
 
-// Sync 刷新输出 Writer 缓冲区
+// Sync 刷新输出 Writer 缓冲区。
 func (h *Handler) Sync() error {
-	if h.output != nil {
-		return h.output.Sync()
+	return syncManagedHandlers(h.managed)
+}
+
+func buildReplaceAttr(
+	location *time.Location,
+	timeFormat string,
+	expandJSON bool,
+	userReplace func(groups []string, attr slog.Attr) slog.Attr,
+) func(groups []string, attr slog.Attr) slog.Attr {
+	return func(groups []string, attr slog.Attr) slog.Attr {
+		switch attr.Key {
+		case slog.TimeKey:
+			attr = slog.String(attr.Key, formatTimeValue(resolveTimeAttr(attr, location), timeFormat))
+		case slog.SourceKey:
+			if src, ok := attr.Value.Any().(*slog.Source); ok && src != nil {
+				clipped := *src
+				clipped.File = clipWorkspacePath(clipped.File)
+				attr = slog.Any(attr.Key, &clipped)
+			}
+		default:
+			if err, ok := attr.Value.Any().(error); ok && err != nil {
+				attr = slog.String(attr.Key, err.Error())
+			}
+			if expandJSON && attr.Value.Kind() == slog.KindString {
+				if expanded, ok := expandJSONStringAttr(attr.Key, attr.Value.String()); ok {
+					attr = expanded
+				}
+			}
+		}
+
+		if userReplace != nil {
+			attr = userReplace(groups, attr)
+		}
+		return attr
 	}
-	return nil
 }
 
-// SetLevel 动态设置日志级别
-func (h *Handler) SetLevel(level slog.Level) {
-	h.levelVar.Set(level)
+func resolveTimeAttr(attr slog.Attr, location *time.Location) time.Time {
+	t := attr.Value.Time()
+	if location != nil {
+		return t.In(location)
+	}
+	return t
 }
 
-// Level 获取当前日志级别
-func (h *Handler) Level() slog.Level {
-	return h.levelVar.Level()
+func formatTimeValue(t time.Time, format string) string {
+	switch format {
+	case "time":
+		return t.Format("15:04:05")
+	case "timems":
+		return t.Format("15:04:05.000")
+	case "datetime":
+		return t.Format("2006-01-02 15:04:05")
+	case "rfc3339":
+		return t.Format(time.RFC3339)
+	case "rfc3339ms":
+		return t.Format("2006-01-02T15:04:05.000Z07:00")
+	default:
+		if format == "" {
+			return t.Format("2006-01-02 15:04:05")
+		}
+		return t.Format(format)
+	}
 }
+
+func expandJSONStringAttr(key, raw string) (slog.Attr, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw[0] != '{' {
+		return slog.Attr{}, false
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return slog.Attr{}, false
+	}
+
+	return slog.Group(key, mapToAttrs(payload)...), true
+}
+
+func mapToAttrs(payload map[string]any) []any {
+	keys := make([]string, 0, len(payload))
+	for key := range payload {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	attrs := make([]any, 0, len(keys))
+	for _, key := range keys {
+		attrs = append(attrs, jsonValueToAttr(key, payload[key]))
+	}
+	return attrs
+}
+
+func jsonValueToAttr(key string, value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return slog.Group(key, mapToAttrs(typed)...)
+	case string:
+		return slog.String(key, typed)
+	case bool:
+		return slog.Bool(key, typed)
+	case float64:
+		if typed == float64(int64(typed)) {
+			return slog.Int64(key, int64(typed))
+		}
+		return slog.Float64(key, typed)
+	case nil:
+		return slog.Any(key, nil)
+	default:
+		return slog.Any(key, typed)
+	}
+}
+
+type colorWriter struct {
+	next Writer
+}
+
+func (w *colorWriter) Write(p []byte) (int, error) {
+	return w.next.Write(colorizeLine(p))
+}
+
+func (w *colorWriter) Close() error {
+	return w.next.Close()
+}
+
+func (w *colorWriter) Sync() error {
+	return w.next.Sync()
+}
+
+func colorizeLine(p []byte) []byte {
+	line := bytes.TrimSuffix(p, []byte{'\n'})
+	color := detectLevelColor(line)
+	if color == "" {
+		return append([]byte(nil), p...)
+	}
+
+	var out bytes.Buffer
+	out.WriteString(color)
+	out.Write(line)
+	out.WriteString("\x1b[0m")
+	if len(line) != len(p) {
+		out.WriteByte('\n')
+	}
+	return out.Bytes()
+}
+
+func detectLevelColor(line []byte) string {
+	text := string(line)
+	switch {
+	case strings.Contains(text, ` level=DEBUG`) || strings.Contains(text, `"level":"DEBUG"`):
+		return "\x1b[36m"
+	case strings.Contains(text, ` level=INFO`) || strings.Contains(text, `"level":"INFO"`):
+		return "\x1b[32m"
+	case strings.Contains(text, ` level=WARN`) || strings.Contains(text, `"level":"WARN"`):
+		return "\x1b[33m"
+	case strings.Contains(text, ` level=ERROR`) || strings.Contains(text, `"level":"ERROR"`):
+		return "\x1b[31m"
+	default:
+		return ""
+	}
+}
+
+var _ slog.Handler = (*Handler)(nil)

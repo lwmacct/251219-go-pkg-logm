@@ -31,9 +31,10 @@ type runtimeState struct {
 // 使用 Config 配置：
 //
 //	logm.Init(Config{
-//	    Level:     "DEBUG",
-//	    Formatter: formatter.ColorText(),
-//	    Output:    writer.Stdout(),
+//	    Level:  "DEBUG",
+//	    Format: logm.FormatText,
+//	    Color:  true,
+//	    Output: writer.Stdout(),
 //	})
 //
 // 也可使用预设配置：

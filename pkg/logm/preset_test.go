@@ -35,4 +35,7 @@ func TestPresetFromEnv_DefaultPresetStillUsesSingleOutput(t *testing.T) {
 
 	resolved := normalizeConfig(PresetFromEnv(), nil)
 	assert.IsType(t, writer.Stdout(), resolved.output)
+	assert.Equal(t, FormatText, resolved.format)
+	assert.True(t, resolved.color)
+	assert.True(t, resolved.expandJSON)
 }
