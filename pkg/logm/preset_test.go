@@ -40,6 +40,25 @@ func TestPresetFromEnv_DefaultPresetStillUsesSingleOutput(t *testing.T) {
 	assert.IsType(t, writer.Stdout(), resolved.output)
 }
 
+func TestPresetProd_EmitsSourceInJSONOutput(t *testing.T) {
+	var buf bytes.Buffer
+
+	cfg := PresetProd()
+	cfg.Output = &testWriter{buf: &buf}
+
+	logger := New(cfg)
+	logger.Info("hello")
+
+	output := buf.String()
+	assert.Contains(t, output, `"msg":"hello"`)
+	assert.Contains(t, output, `"source":"`)
+}
+
+func TestPresetProd_UsesShanghaiTimezone(t *testing.T) {
+	cfg := PresetProd()
+	assert.Equal(t, "Asia/Shanghai", cfg.Timezone)
+}
+
 func TestPresetFromEnv_TimeFormatReconfiguresFormatter(t *testing.T) {
 	t.Setenv("LOGM_ENV", "prod")
 	t.Setenv("LOGM_TIME_FORMAT", "time")

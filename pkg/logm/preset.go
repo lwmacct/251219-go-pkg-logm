@@ -35,7 +35,7 @@ func PresetDev() Config {
 // 特点：
 //   - JSON 格式输出
 //   - INFO 级别
-//   - 不显示源代码位置
+//   - 显示源代码位置
 //   - RFC3339 时间格式
 func PresetProd() Config {
 	return Config{
@@ -44,9 +44,9 @@ func PresetProd() Config {
 			formatter.WithTimeFormat("rfc3339ms"),
 		),
 		Output:     writer.Stdout(),
-		AddSource:  false,
+		AddSource:  true,
 		TimeFormat: "rfc3339ms",
-		Timezone:   "UTC",
+		Timezone:   "Asia/Shanghai",
 	}
 }
 

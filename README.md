@@ -75,7 +75,7 @@ cfg.Level = "DEBUG"
 
 - `logm.PresetDefault()`：默认基础配置
 - `logm.PresetDev()`：开发环境，彩色输出、DEBUG、带 source
-- `logm.PresetProd()`：生产环境，JSON 输出、INFO、UTC 时间
+- `logm.PresetProd()`：生产环境，JSON 输出、INFO、北京时间、带 source
 - `logm.PresetAuto()`：根据环境自动选择 dev / prod
 - `logm.PresetFromEnv()`：从环境变量生成配置
 
