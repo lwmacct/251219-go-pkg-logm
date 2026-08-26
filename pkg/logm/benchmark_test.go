@@ -11,7 +11,11 @@ func BenchmarkJSONLogger(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer l.Close()
+	b.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			b.Errorf("close logger: %v", closeErr)
+		}
+	})
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {

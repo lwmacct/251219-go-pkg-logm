@@ -20,7 +20,11 @@ func TestNewJSONUsesStandardSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	l.Info("hello", slog.Group("request", slog.String("path", "/")), slog.Any("err", errors.New("bad")))
 	var got map[string]any
 	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &got); err != nil {
@@ -44,7 +48,11 @@ func TestNewDefaultConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	l.Info("default")
 	if !strings.Contains(buf.String(), "msg=default") {
 		t.Fatalf("output = %q", buf.String())
@@ -57,7 +65,11 @@ func TestPrettyOutputColorsLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	l.Warn("warning")
 	if !strings.Contains(buf.String(), "\x1b[33mWARN") {
 		t.Fatalf("pretty output = %q", buf.String())
@@ -76,7 +88,11 @@ func TestMiddlewareCanDropAndRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	l.Info("hello")
 	l.Info("drop")
 	if !strings.Contains(buf.String(), "msg=HELLO") || strings.Contains(buf.String(), "DROP") {
@@ -148,7 +164,11 @@ func TestCustomLevelerRemainsDynamic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	l.Debug("hidden")
 	levels.Set(slog.LevelDebug)
 	l.Debug("visible")
@@ -167,7 +187,11 @@ func TestOnErrorReceivesSinkFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	l.Info("hello")
 	if !errors.Is(got, want) {
 		t.Fatalf("OnError = %v", got)
@@ -193,7 +217,11 @@ func TestReplaceAttrReceivesResolvedValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	l.Info("x", "value", testLogValuer{})
 	if kind != slog.KindString {
 		t.Fatalf("ReplaceAttr kind = %v", kind)
@@ -206,7 +234,11 @@ func TestLogWithPCUsesProvidedProgramCounter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	ctx := WithLogger(context.Background(), l.Logger)
 	pc := CallerPC("logm.TestLogWithPCUsesProvidedProgramCounter")
 	LogWithPC(ctx, slog.LevelInfo, pc, "pc")
@@ -251,7 +283,11 @@ func TestReplaceAttrAndSourceClip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() {
+		if closeErr := l.Close(); closeErr != nil {
+			t.Errorf("close logger: %v", closeErr)
+		}
+	})
 	l.Info("hello", "secret", "value")
 	if !strings.Contains(buf.String(), `"secret":"redacted"`) {
 		t.Fatalf("replace attr failed: %s", buf.String())

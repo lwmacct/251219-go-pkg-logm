@@ -16,7 +16,11 @@ func FuzzJSONHandlerNeverEmitsInvalidJSON(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer l.Close()
+		t.Cleanup(func() {
+			if closeErr := l.Close(); closeErr != nil {
+				t.Errorf("close logger: %v", closeErr)
+			}
+		})
 		l.Info(msg, slog.String(key, value))
 		var decoded map[string]any
 		if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &decoded); err != nil {
