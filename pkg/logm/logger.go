@@ -5,88 +5,126 @@ import (
 	"sync"
 )
 
-var (
-	globalRuntime *runtimeState
-	// globalMu 保护全局状态
-	globalMu sync.RWMutex
-)
-
-type managedHandler interface {
-	Close() error
-	Sync() error
-}
-
-type builtHandler struct {
-	handler slog.Handler
-	managed []managedHandler
+// Logger owns the resources configured for its handlers. Embed *slog.Logger
+// so existing slog call sites keep the full standard API while Close and Sync
+// provide deterministic lifecycle management.
+type Logger struct {
+	*slog.Logger
+	managed   []managed
+	syncers   []syncer
+	closeOnce sync.Once
+	closeErr  error
 }
 
 type runtimeState struct {
-	managed         []managedHandler
+	logger          *Logger
 	previousDefault *slog.Logger
 }
 
-// Init 初始化全局日志系统。
-//
-// 使用 Config 配置：
-//
-//	logm.Init(Config{
-//	    Level:     "DEBUG",
-//	    Formatter: formatter.ColorText(),
-//	    Output:    writer.Stdout(),
-//	})
-//
-// 也可使用预设配置：
-//
-//	logm.Init(logm.PresetDev())
-//	logm.Init(logm.PresetProd())
+var (
+	globalMu      sync.RWMutex
+	globalRuntime *runtimeState
+)
+
+// New creates an independent logger. The caller owns it and should call Close
+// when it is no longer needed.
+func New(configs ...Config) (*Logger, error) {
+	built, err := buildLogger(firstConfig(configs...), nil)
+	if err != nil {
+		return nil, err
+	}
+	return &Logger{Logger: slog.New(built.handler), managed: built.managed, syncers: built.syncers}, nil
+}
+
+// Init installs a process-wide default logger and closes the previous logger
+// after the new one is visible. If building fails, the existing logger remains
+// untouched.
 func Init(configs ...Config) error {
-	built := buildHandlerWithLevelVar(globalLevelVar, firstConfig(configs...))
-	logger := slog.New(built.handler)
+	cfg := firstConfig(configs...)
+	// Concrete preset levels initialize the process-wide LevelVar so SetLevel
+	// continues to affect the installed logger. Callers that provide their own
+	// Leveler retain full control over its dynamic behavior.
+	if level, ok := cfg.Level.(slog.Level); ok {
+		globalLevelVar.Set(level)
+		cfg.Level = globalLevelVar
+	}
+	built, err := buildLogger(cfg, globalLevelVar)
+	if err != nil {
+		return err
+	}
+	logger := &Logger{Logger: slog.New(built.handler), managed: built.managed, syncers: built.syncers}
 
 	globalMu.Lock()
 	previousDefault := slog.Default()
 	if globalRuntime != nil && globalRuntime.previousDefault != nil {
 		previousDefault = globalRuntime.previousDefault
 	}
-	oldRuntime := globalRuntime
-	globalRuntime = &runtimeState{
-		managed:         built.managed,
-		previousDefault: previousDefault,
-	}
-	slog.SetDefault(logger)
+	old := globalRuntime
+	globalRuntime = &runtimeState{logger: logger, previousDefault: previousDefault}
+	slog.SetDefault(logger.Logger)
 	globalMu.Unlock()
 
-	if oldRuntime != nil {
-		_ = closeManagedHandlers(oldRuntime.managed)
+	if old != nil && old.logger != nil {
+		return old.logger.Close()
 	}
-
 	return nil
 }
 
-// MustInit 初始化全局日志系统，失败时 panic。
-//
-// 适用于程序启动阶段，日志系统初始化失败通常意味着程序无法正常运行：
-//
-//	func main() {
-//	    logm.MustInit(logm.PresetDev())
-//	    defer logm.Close()
-//	    // ...
-//	}
+// MustInit panics when Init cannot validate or construct the logger.
 func MustInit(configs ...Config) {
 	if err := Init(configs...); err != nil {
 		panic("logm: init failed: " + err.Error())
 	}
 }
 
-// New 创建独立的 logger 实例。
-//
-// 返回的 logger 独立于全局配置，适用于模块专用日志。
-func New(configs ...Config) *slog.Logger {
-	built := buildHandlerWithLevelVar(nil, firstConfig(configs...))
-
-	return slog.New(built.handler)
+// Close closes the global logger and restores the slog default that was active
+// before the first Init call. It is safe to call repeatedly.
+func Close() error {
+	globalMu.Lock()
+	state := globalRuntime
+	globalRuntime = nil
+	if state != nil && state.previousDefault != nil {
+		slog.SetDefault(state.previousDefault)
+	}
+	globalMu.Unlock()
+	if state == nil || state.logger == nil {
+		return nil
+	}
+	return state.logger.Close()
 }
+
+// Sync flushes all global logger sinks without closing them.
+func Sync() error {
+	globalMu.RLock()
+	state := globalRuntime
+	globalMu.RUnlock()
+	if state == nil || state.logger == nil {
+		return nil
+	}
+	return state.logger.Sync()
+}
+
+// Close releases resources owned by this logger. The result is stable across
+// repeated calls and includes all close errors.
+func (l *Logger) Close() error {
+	if l == nil {
+		return nil
+	}
+	l.closeOnce.Do(func() { l.closeErr = closeManaged(l.managed) })
+	return l.closeErr
+}
+
+// Sync flushes all sinks owned by this logger.
+func (l *Logger) Sync() error {
+	if l == nil {
+		return nil
+	}
+	return syncAll(l.syncers)
+}
+
+// Default returns the standard global logger. Use Logger methods when you need
+// to close an independently-created instance.
+func Default() *slog.Logger { return slog.Default() }
 
 func firstConfig(configs ...Config) Config {
 	if len(configs) == 0 {
@@ -95,90 +133,10 @@ func firstConfig(configs ...Config) Config {
 	return configs[0]
 }
 
-// Close 关闭全局日志系统，释放资源。
-func Close() error {
-	globalMu.Lock()
-	runtime := globalRuntime
-	globalRuntime = nil
-	if runtime != nil && runtime.previousDefault != nil {
-		slog.SetDefault(runtime.previousDefault)
-	}
-	globalMu.Unlock()
-
-	if runtime != nil {
-		return closeManagedHandlers(runtime.managed)
-	}
-	return nil
-}
-
-// Sync 刷新全局日志缓冲区。
-func Sync() error {
-	globalMu.RLock()
-	var handlers []managedHandler
-	if globalRuntime != nil {
-		handlers = append([]managedHandler(nil), globalRuntime.managed...)
-	}
-	globalMu.RUnlock()
-
-	if len(handlers) > 0 {
-		return syncManagedHandlers(handlers)
-	}
-	return nil
-}
-
-func closeManagedHandlers(handlers []managedHandler) error {
-	var firstErr error
-	for _, h := range handlers {
-		if err := h.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-func syncManagedHandlers(handlers []managedHandler) error {
-	var firstErr error
-	for _, h := range handlers {
-		if err := h.Sync(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-// Default 返回全局默认 logger。
-func Default() *slog.Logger {
-	return slog.Default()
-}
-
-// 便捷日志函数
-
-// Debug 记录调试级别日志。
-func Debug(msg string, args ...any) {
-	slog.Debug(msg, args...)
-}
-
-// Info 记录信息级别日志。
-func Info(msg string, args ...any) {
-	slog.Info(msg, args...)
-}
-
-// Warn 记录警告级别日志。
-func Warn(msg string, args ...any) {
-	slog.Warn(msg, args...)
-}
-
-// Error 记录错误级别日志。
-func Error(msg string, args ...any) {
-	slog.Error(msg, args...)
-}
-
-// With 返回带有额外属性的 logger。
-func With(args ...any) *slog.Logger {
-	return slog.Default().With(args...)
-}
-
-// WithGroup 返回带有分组的 logger。
-func WithGroup(name string) *slog.Logger {
-	return slog.Default().WithGroup(name)
-}
+// convenience functions intentionally delegate to standard slog.Default.
+func Debug(msg string, args ...any)      { slog.Debug(msg, args...) }
+func Info(msg string, args ...any)       { slog.Info(msg, args...) }
+func Warn(msg string, args ...any)       { slog.Warn(msg, args...) }
+func Error(msg string, args ...any)      { slog.Error(msg, args...) }
+func With(args ...any) *slog.Logger      { return slog.Default().With(args...) }
+func WithGroup(name string) *slog.Logger { return slog.Default().WithGroup(name) }

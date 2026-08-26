@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 )
 
@@ -27,26 +26,13 @@ func FormatBytes(bytes int64) string {
 
 // LogError 记录错误日志并返回原始错误，适用于同时需要记录和返回错误的场景。
 //
-// ctx 可以是 [context.Context]（从中提取 logger）或其他类型（使用全局 logger）。
-// 错误会作为 "error" 字段自动添加到日志属性中。
+// logger 从 ctx 提取，错误会作为 "error" 字段自动添加到日志属性中。
 //
 // 示例：
 //
 //	return logm.LogError(ctx, "数据库查询失败", err, "table", "users")
-func LogError(ctx any, msg string, err error, attrs ...any) error {
-	var logger *slog.Logger
-
-	// 尝试从 context 获取 logger
-	if c, ok := ctx.(interface{ Value(key any) any }); ok {
-		if l, ok := c.Value(loggerKey).(*slog.Logger); ok {
-			logger = l
-		}
-	}
-
-	// 如果没有从 context 获取到，使用默认 logger
-	if logger == nil {
-		logger = slog.Default()
-	}
+func LogError(ctx context.Context, msg string, err error, attrs ...any) error {
+	logger := FromContext(ctx)
 
 	// 合并错误到属性中
 	allAttrs := append([]any{"error", err}, attrs...)
@@ -70,34 +56,6 @@ func LogAndWrap(msg string, err error, attrs ...any) error {
 	return fmt.Errorf("%s: %w", msg, err)
 }
 
-// clipWorkspacePath 裁剪路径中包含的 /workspace/xxx/ 部分
-//
-// 当路径包含 /workspace/ 时（无论位置），去掉 /workspace/ 及其后一级目录
-// 例如：/workspace/251127-ai-agent-hatch/main.go:146 -> main.go:146
-//
-//	/apps/data/workspace/251219-go-pkg-logm/pkg/logm/logm.go:100 -> pkg/logm/logm.go:100
-//
-// 这在容器化或沙盒环境中很有用，可以使日志中的源代码位置更简洁
-func clipWorkspacePath(path string) string {
-	const workspacePattern = "/workspace/"
-
-	// 在路径中查找 /workspace/ 第一次出现的位置
-	_, afterWorkspace, found1 := strings.Cut(path, workspacePattern)
-	if !found1 {
-		return path
-	}
-
-	// 跳过项目目录名，获取下一个 / 后面的部分
-	_, result, found2 := strings.Cut(afterWorkspace, "/")
-	if !found2 {
-		// 没有更多路径分隔符，返回原路径
-		return path
-	}
-
-	// 返回项目目录后面的部分
-	return result
-}
-
 // LogWithPC 使用指定的 PC（程序计数器）记录日志。
 //
 // 配合 [CallerPC] 使用，可以在日志封装场景中正确显示调用源位置。
@@ -110,13 +68,16 @@ func clipWorkspacePath(path string) string {
 //	    slog.Duration("elapsed", elapsed),
 //	    slog.String("sql", sql),
 //	)
-func LogWithPC(ctx context.Context, level slog.Level, pc uintptr, msg string, attrs ...any) {
+func LogWithPC(ctx context.Context, level slog.Level, pc uintptr, msg string, attrs ...slog.Attr) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logger := FromContext(ctx)
 	if !logger.Enabled(ctx, level) {
 		return
 	}
 
 	r := slog.NewRecord(time.Now(), level, msg, pc)
-	r.Add(attrs...)
+	r.AddAttrs(attrs...)
 	_ = logger.Handler().Handle(ctx, r)
 }

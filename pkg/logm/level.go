@@ -1,71 +1,49 @@
 package logm
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 )
 
-// globalLevelVar 全局日志级别变量
-var globalLevelVar = &slog.LevelVar{}
+var globalLevelVar = new(slog.LevelVar)
 
-func init() {
-	globalLevelVar.Set(slog.LevelInfo)
-}
+func init() { globalLevelVar.Set(slog.LevelInfo) }
 
-// SetLevel 动态设置全局日志级别。
-//
-// 该函数是线程安全的，修改会立即对所有使用全局 logger 的调用生效。
-// 支持: DEBUG, INFO, WARN, ERROR（大小写不敏感）
-//
-// 示例:
-//
-//	logm.SetLevel("DEBUG")  // 开启调试日志
-//	logm.SetLevel("ERROR")  // 仅显示错误
-func SetLevel(level string) {
-	globalLevelVar.Set(ParseLevel(level))
-}
-
-// GetLevel 获取当前全局日志级别。
-func GetLevel() string {
-	return globalLevelVar.Level().String()
-}
-
-// GetLevelVar 返回底层的 slog.LevelVar。
-//
-// 高级用法：可用于自定义 Handler 的 Level 配置。
-func GetLevelVar() *slog.LevelVar {
-	return globalLevelVar
-}
-
-// ParseLevel 解析日志级别字符串。
-//
-// 支持: DEBUG, INFO, WARN, WARNING, ERROR（大小写不敏感）
-// 无法识别的级别默认返回 INFO。
-func ParseLevel(level string) slog.Level {
-	switch strings.ToUpper(level) {
+// ParseLevel strictly parses a level name. Unknown values are errors rather
+// than silently becoming INFO, because an unnoticed production typo is unsafe.
+func ParseLevel(raw string) (slog.Level, error) {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
 	case "DEBUG":
-		return slog.LevelDebug
+		return slog.LevelDebug, nil
 	case "INFO":
-		return slog.LevelInfo
+		return slog.LevelInfo, nil
 	case "WARN", "WARNING":
-		return slog.LevelWarn
+		return slog.LevelWarn, nil
 	case "ERROR":
-		return slog.LevelError
+		return slog.LevelError, nil
 	default:
-		return slog.LevelInfo
+		return 0, fmt.Errorf("logm: invalid level %q", raw)
 	}
 }
 
-// LevelString 将 slog.Level 转换为字符串。
-func LevelString(level slog.Level) string {
-	switch {
-	case level < slog.LevelInfo:
-		return "DEBUG"
-	case level < slog.LevelWarn:
-		return "INFO"
-	case level < slog.LevelError:
-		return "WARN"
-	default:
-		return "ERROR"
+// SetLevel changes the process-wide minimum level and returns an error for an
+// invalid name.
+func SetLevel(raw string) error {
+	level, err := ParseLevel(raw)
+	if err != nil {
+		return err
 	}
+	globalLevelVar.Set(level)
+	return nil
 }
+
+// SetLevelValue is the typed variant for callers that already have a slog
+// level.
+func SetLevelValue(level slog.Level) { globalLevelVar.Set(level) }
+
+func GetLevel() slog.Level { return globalLevelVar.Level() }
+
+func GetLevelVar() *slog.LevelVar { return globalLevelVar }
+
+func LevelString(level slog.Level) string { return level.String() }

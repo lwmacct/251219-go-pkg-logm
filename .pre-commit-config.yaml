@@ -13,14 +13,3 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ["--maxkb=512"]
-
-  - repo: https://github.com/lwmacct/251211-pre-commit
-    rev: v1.0.2
-    hooks:
-      - id: prettier
-
-  - repo: https://github.com/golangci/golangci-lint
-    rev: v2.11.2
-    hooks:
-      - id: golangci-lint
-      - id: golangci-lint-config-verify

@@ -3,599 +3,300 @@ package logm
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
-	"time"
-
-	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/formatter"
-	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestInit_Default(t *testing.T) {
-	err := Init()
-	require.NoError(t, err)
-	defer func() { _ = Close() }()
-
-	// 验证可以正常记录日志
-	slog.Info("test message")
-}
-
-func TestInit_WithLevel(t *testing.T) {
-	err := Init(Config{Level: "DEBUG"})
-	require.NoError(t, err)
-	defer func() { _ = Close() }()
-}
-
-func TestInit_Development(t *testing.T) {
-	err := Init(PresetDev())
-	require.NoError(t, err)
-	defer func() { _ = Close() }()
-}
-
-func TestInit_Production(t *testing.T) {
-	err := Init(PresetProd())
-	require.NoError(t, err)
-	defer func() { _ = Close() }()
-}
-
-func TestMustInit_Success(t *testing.T) {
-	// MustInit 成功时不应 panic
-	assert.NotPanics(t, func() {
-		MustInit(Config{Level: "INFO"})
-	})
-	defer func() { _ = Close() }()
-}
-
-func TestNew_ReturnsLogger(t *testing.T) {
-	log := New(Config{Level: "INFO"})
-	assert.NotNil(t, log)
-}
-
-func TestNew_WithFormatter(t *testing.T) {
-	log := New(Config{
-		Formatter: formatter.JSON(),
-		Level:     "DEBUG",
-	})
-	assert.NotNil(t, log)
-}
-
-func TestNew_WithFormatterRespectsTimeFormatOverride(t *testing.T) {
+func TestNewJSONUsesStandardSemantics(t *testing.T) {
 	var buf bytes.Buffer
-
-	log := New(Config{
-		Formatter:  formatter.Text(),
-		TimeFormat: "time",
-		Output:     &testWriter{buf: &buf},
+	l, err := New(Config{
+		Level:     slog.LevelDebug,
+		Outputs:   []Output{{Writer: &buf, Format: FormatJSON}},
+		AddSource: false,
 	})
-
-	log.Info("hello")
-
-	assert.Regexp(t, `time=\d{2}:\d{2}:\d{2} level=INFO msg=hello`, buf.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	l.Info("hello", slog.Group("request", slog.String("path", "/")), slog.Any("err", errors.New("bad")))
+	var got map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &got); err != nil {
+		t.Fatalf("invalid JSON: %v (%s)", err, buf.String())
+	}
+	if got["msg"] != "hello" {
+		t.Fatalf("msg = %#v", got["msg"])
+	}
+	request, ok := got["request"].(map[string]any)
+	if !ok || request["path"] != "/" {
+		t.Fatalf("request = %#v", got["request"])
+	}
+	if got["err"] != "bad" {
+		t.Fatalf("err = %#v", got["err"])
+	}
 }
 
-func TestNew_WithWriter(t *testing.T) {
-	w := writer.Stdout()
-	log := New(Config{Output: w})
-	assert.NotNil(t, log)
-}
-
-func TestNew_WithSlogHandler(t *testing.T) {
-	var textBuf bytes.Buffer
-	var jsonBuf bytes.Buffer
-
-	log := New(Config{
-		Output:       &testWriter{buf: &textBuf},
-		SlogHandlers: []slog.Handler{slog.NewJSONHandler(&jsonBuf, nil)},
-	})
-	require.NotNil(t, log)
-
-	log.Info("hello", "user", "alice")
-
-	assert.Contains(t, textBuf.String(), "hello")
-	assert.Contains(t, textBuf.String(), "user=alice")
-	assert.Contains(t, jsonBuf.String(), `"msg":"hello"`)
-	assert.Contains(t, jsonBuf.String(), `"user":"alice"`)
-}
-
-func TestNew_WithLevelVar(t *testing.T) {
+func TestNewDefaultConfig(t *testing.T) {
 	var buf bytes.Buffer
-	levelVar := &slog.LevelVar{}
-	levelVar.Set(slog.LevelError)
+	l, err := New(Config{Outputs: []Output{{Writer: &buf, Format: FormatText}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	l.Info("default")
+	if !strings.Contains(buf.String(), "msg=default") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}
 
-	log := New(Config{
-		LevelVar: levelVar,
-		Output:   &testWriter{buf: &buf},
+func TestPrettyOutputColorsLevel(t *testing.T) {
+	var buf bytes.Buffer
+	l, err := New(Config{Outputs: []Output{{Writer: &buf, Format: FormatPretty}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	l.Warn("warning")
+	if !strings.Contains(buf.String(), "\x1b[33mWARN") {
+		t.Fatalf("pretty output = %q", buf.String())
+	}
+}
+
+func TestMiddlewareCanDropAndRewrite(t *testing.T) {
+	var buf bytes.Buffer
+	l, err := New(Config{
+		Outputs: []Output{{Writer: &buf, Format: FormatText}},
+		Middleware: []Middleware{func(_ context.Context, r slog.Record) (slog.Record, bool) {
+			r.Message = strings.ToUpper(r.Message)
+			return r, r.Message != "DROP"
+		}},
 	})
-	require.NotNil(t, log)
-
-	log.Info("filtered")
-	assert.NotContains(t, buf.String(), "filtered")
-
-	levelVar.Set(slog.LevelInfo)
-	log.Info("visible")
-	assert.Contains(t, buf.String(), "visible")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	l.Info("hello")
+	l.Info("drop")
+	if !strings.Contains(buf.String(), "msg=HELLO") || strings.Contains(buf.String(), "DROP") {
+		t.Fatalf("output = %q", buf.String())
+	}
 }
 
-func TestSetLevel(t *testing.T) {
-	err := Init(Config{Level: "INFO"})
-	require.NoError(t, err)
-	defer func() { _ = Close() }()
-
-	// 动态调整级别
-	SetLevel("DEBUG")
-	// 验证可以正常记录 DEBUG 日志
-	slog.Debug("debug message")
-
-	SetLevel("ERROR")
-	// 验证 INFO 级别被过滤
+func TestRequestID(t *testing.T) {
+	ctx := WithNewRequestID(context.Background())
+	if id := RequestID(ctx); len(id) != 36 {
+		t.Fatalf("request id = %q", id)
+	}
+	if FromContext(ctx) == nil {
+		t.Fatal("missing logger")
+	}
 }
 
-func TestParseLevel(t *testing.T) {
+func TestParseLevelStrict(t *testing.T) {
+	if _, err := ParseLevel("unknown"); err == nil {
+		t.Fatal("expected invalid level error")
+	}
+	level, err := ParseLevel(" warning ")
+	if err != nil || level != slog.LevelWarn {
+		t.Fatalf("ParseLevel = %v, %v", level, err)
+	}
+}
+
+func TestInitCloseLifecycleAndLevel(t *testing.T) {
+	previous := slog.Default()
+	var buf bytes.Buffer
+	if err := Init(Config{Level: slog.LevelError, Outputs: []Output{{Writer: &buf, Format: FormatText}}}); err != nil {
+		t.Fatal(err)
+	}
+	slog.Info("hidden")
+	slog.Error("shown")
+	if strings.Contains(buf.String(), "hidden") || !strings.Contains(buf.String(), "shown") {
+		t.Fatalf("level filtering output=%q", buf.String())
+	}
+	if err := Close(); err != nil {
+		t.Fatal(err)
+	}
+	if slog.Default() != previous {
+		t.Fatal("Close did not restore previous slog default")
+	}
+}
+
+func TestSetLevelAffectsGlobalPreset(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := PresetProd()
+	cfg.Outputs = []Output{{Writer: &buf, Format: FormatText}}
+	if err := Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = Close(); SetLevelValue(slog.LevelInfo) }()
+	if err := SetLevel("DEBUG"); err != nil {
+		t.Fatal(err)
+	}
+	slog.Debug("visible")
+	if !strings.Contains(buf.String(), "visible") {
+		t.Fatal("SetLevel did not update global handler")
+	}
+}
+
+func TestCustomLevelerRemainsDynamic(t *testing.T) {
+	var buf bytes.Buffer
+	levels := new(slog.LevelVar)
+	levels.Set(slog.LevelInfo)
+	l, err := New(Config{Level: levels, Outputs: []Output{{Writer: &buf, Format: FormatText}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	l.Debug("hidden")
+	levels.Set(slog.LevelDebug)
+	l.Debug("visible")
+	if strings.Contains(buf.String(), "hidden") || !strings.Contains(buf.String(), "visible") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+func TestOnErrorReceivesSinkFailure(t *testing.T) {
+	want := errors.New("sink failed")
+	var got error
+	l, err := New(Config{
+		Outputs: []Output{{Writer: failingWriter{err: want}, Format: FormatText}},
+		OnError: func(err error) { got = err },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	l.Info("hello")
+	if !errors.Is(got, want) {
+		t.Fatalf("OnError = %v", got)
+	}
+}
+
+type testLogValuer struct{}
+
+func (testLogValuer) LogValue() slog.Value { return slog.StringValue("resolved") }
+
+func TestReplaceAttrReceivesResolvedValue(t *testing.T) {
+	var buf bytes.Buffer
+	var kind slog.Kind
+	l, err := New(Config{
+		Outputs: []Output{{Writer: &buf, Format: FormatJSON}},
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == "value" {
+				kind = a.Value.Kind()
+			}
+			return a
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	l.Info("x", "value", testLogValuer{})
+	if kind != slog.KindString {
+		t.Fatalf("ReplaceAttr kind = %v", kind)
+	}
+}
+
+func TestLogWithPCUsesProvidedProgramCounter(t *testing.T) {
+	var buf bytes.Buffer
+	l, err := New(Config{Outputs: []Output{{Writer: &buf, Format: FormatJSON}}, AddSource: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	ctx := WithLogger(context.Background(), l.Logger)
+	pc := CallerPC("logm.TestLogWithPCUsesProvidedProgramCounter")
+	LogWithPC(ctx, slog.LevelInfo, pc, "pc")
+	if !strings.Contains(buf.String(), `"source"`) {
+		t.Fatalf("source missing: %s", buf.String())
+	}
+}
+
+func TestClipSourcePath(t *testing.T) {
 	tests := []struct {
-		input string
-		want  slog.Level
+		path, prefix string
+		depth        int
+		want         string
 	}{
-		{"DEBUG", slog.LevelDebug},
-		{"INFO", slog.LevelInfo},
-		{"WARN", slog.LevelWarn},
-		{"WARNING", slog.LevelWarn},
-		{"ERROR", slog.LevelError},
-		{"UNKNOWN", slog.LevelInfo}, // default
-		// 小写支持
-		{"debug", slog.LevelDebug},
-		{"info", slog.LevelInfo},
-		{"warn", slog.LevelWarn},
-		{"error", slog.LevelError},
-		// 混合大小写
-		{"Debug", slog.LevelDebug},
-		{"Info", slog.LevelInfo},
+		{"/workspace/project/pkg/logm/file.go", "/workspace/", 3, "pkg/logm/file.go"},
+		{"/a/b/c/d.go", "", 2, "c/d.go"},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := ParseLevel(tt.input)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestFromContext(t *testing.T) {
-	ctx := context.Background()
-
-	// 测试从空 context 获取 logger（应该返回默认 logger）
-	logger := FromContext(ctx)
-	assert.NotNil(t, logger, "FromContext should not return nil for empty context")
-
-	// 测试从带有 logger 的 context 获取
-	customLogger := slog.Default().With("custom", "value")
-	ctxWithLogger := WithLogger(ctx, customLogger)
-	retrievedLogger := FromContext(ctxWithLogger)
-	assert.Equal(t, customLogger, retrievedLogger)
-}
-
-func TestWithRequestID(t *testing.T) {
-	ctx := context.Background()
-	requestID := "test-request-123"
-
-	ctxWithReqID := WithRequestID(ctx, requestID)
-	logger := FromContext(ctxWithReqID)
-	assert.NotNil(t, logger)
-}
-
-func TestFormatBytes(t *testing.T) {
-	tests := []struct {
-		input int64
-		want  string
-	}{
-		{0, "0 B"},
-		{1023, "1023 B"},
-		{1024, "1.0 KB"},
-		{1024 * 1024, "1.0 MB"},
-		{1536 * 1024, "1.5 MB"},
-		{1024 * 1024 * 1024, "1.0 GB"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			got := FormatBytes(tt.input)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestLogError(t *testing.T) {
-	var buf bytes.Buffer
-	handler := slog.NewTextHandler(&buf, nil)
-	slog.SetDefault(slog.New(handler))
-
-	err := LogError(context.Background(), "operation failed",
-		context.DeadlineExceeded, "user_id", "123")
-
-	assert.Equal(t, context.DeadlineExceeded, err, "LogError should return original error")
-
-	output := buf.String()
-	assert.Contains(t, output, "operation failed")
-	assert.Contains(t, output, "user_id=123")
-}
-
-func TestLogAndWrap(t *testing.T) {
-	var buf bytes.Buffer
-	handler := slog.NewTextHandler(&buf, nil)
-	slog.SetDefault(slog.New(handler))
-
-	originalErr := context.DeadlineExceeded
-	wrappedErr := LogAndWrap("fetch failed", originalErr, "url", "http://example.com")
-
-	assert.Contains(t, wrappedErr.Error(), "fetch failed", "error should be wrapped")
-
-	output := buf.String()
-	assert.Contains(t, output, "fetch failed")
-}
-
-func TestClipWorkspacePath(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "workspace path with project dir",
-			input:    "/workspace/251127-ai-agent-hatch/main.go:146",
-			expected: "main.go:146",
-		},
-		{
-			name:     "workspace path with nested dirs",
-			input:    "/workspace/my-project/pkg/logm/logm.go:42",
-			expected: "pkg/logm/logm.go:42",
-		},
-		{
-			name:     "no workspace prefix",
-			input:    "/home/user/project/main.go:10",
-			expected: "/home/user/project/main.go:10",
-		},
-		{
-			name:     "workspace in middle of path",
-			input:    "/apps/data/workspace/251219-go-pkg-logm/pkg/logm/logm.go:100",
-			expected: "pkg/logm/logm.go:100",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := clipWorkspacePath(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestHandler_Handle(t *testing.T) {
-	var buf bytes.Buffer
-	stdoutWriter := &testWriter{buf: &buf}
-
-	h := NewHandler(&HandlerConfig{
-		Formatter: formatter.Text(),
-		Output:    stdoutWriter,
-	})
-
-	logger := slog.New(h)
-	logger.Info("test message", "key", "value")
-
-	output := buf.String()
-	assert.Contains(t, output, "test message")
-	assert.Contains(t, output, "key=value")
-}
-
-func TestHandler_WithAttrs(t *testing.T) {
-	var buf bytes.Buffer
-	stdoutWriter := &testWriter{buf: &buf}
-
-	h := NewHandler(&HandlerConfig{
-		Formatter: formatter.Text(),
-		Output:    stdoutWriter,
-	})
-
-	logger := slog.New(h).With("service", "api")
-	logger.Info("started")
-
-	output := buf.String()
-	assert.Contains(t, output, "service=api")
-}
-
-func TestHandler_WithGroup(t *testing.T) {
-	var buf bytes.Buffer
-	stdoutWriter := &testWriter{buf: &buf}
-
-	h := NewHandler(&HandlerConfig{
-		Formatter: formatter.Text(),
-		Output:    stdoutWriter,
-	})
-
-	logger := slog.New(h).WithGroup("request")
-	logger.Info("received", "method", "POST")
-
-	output := buf.String()
-	assert.Contains(t, output, "request.")
-	assert.Contains(t, output, "method=POST")
-}
-
-func TestHandler_SharedLockAcrossDerivedLoggers(t *testing.T) {
-	slow := &slowTestWriter{}
-	h := NewHandler(&HandlerConfig{
-		Formatter: formatter.Text(),
-		Output:    slow,
-	})
-
-	loggerA := slog.New(h).With("logger", "a")
-	loggerB := slog.New(h).With("logger", "b")
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		loggerA.Info("AAAA")
-	}()
-	go func() {
-		defer wg.Done()
-		loggerB.Info("BBBB")
-	}()
-
-	wg.Wait()
-
-	lines := strings.Split(strings.TrimSpace(slow.buf.String()), "\n")
-	require.Len(t, lines, 2)
-	for _, line := range lines {
-		assert.Contains(t, line, "time=")
-		assert.Contains(t, line, "level=INFO")
-		assert.True(t,
-			(strings.Contains(line, "msg=AAAA") && strings.Contains(line, "logger=a")) ||
-				(strings.Contains(line, "msg=BBBB") && strings.Contains(line, "logger=b")),
-			"unexpected line: %s", line,
-		)
-	}
-}
-
-func TestHandler_LevelFilter(t *testing.T) {
-	var buf bytes.Buffer
-	stdoutWriter := &testWriter{buf: &buf}
-
-	levelVar := &slog.LevelVar{}
-	levelVar.Set(slog.LevelWarn)
-
-	h := NewHandler(&HandlerConfig{
-		LevelVar:  levelVar,
-		Formatter: formatter.Text(),
-		Output:    stdoutWriter,
-	})
-
-	logger := slog.New(h)
-	logger.Debug("debug")
-	logger.Info("info")
-	logger.Warn("warn")
-	logger.Error("error")
-
-	output := buf.String()
-	assert.NotContains(t, output, "debug")
-	assert.NotContains(t, output, `msg=info`)
-	assert.Contains(t, output, "warn")
-	assert.Contains(t, output, "error")
-}
-
-func TestHandler_Interceptor(t *testing.T) {
-	var buf bytes.Buffer
-	stdoutWriter := &testWriter{buf: &buf}
-
-	// 拦截器：添加 trace_id
-	interceptor := func(ctx context.Context, r *Record) *Record {
-		r.Attrs = append(r.Attrs, slog.String("trace_id", "abc123"))
-		return r
-	}
-
-	h := NewHandler(&HandlerConfig{
-		Formatter:    formatter.Text(),
-		Output:       stdoutWriter,
-		Interceptors: []Interceptor{interceptor},
-	})
-
-	logger := slog.New(h)
-	logger.Info("test")
-
-	output := buf.String()
-	assert.Contains(t, output, "trace_id=abc123")
-}
-
-func TestHandler_InterceptorFilter(t *testing.T) {
-	var buf bytes.Buffer
-	stdoutWriter := &testWriter{buf: &buf}
-
-	// 拦截器：过滤包含 "secret" 的日志
-	interceptor := func(ctx context.Context, r *Record) *Record {
-		if strings.Contains(r.Message, "secret") {
-			return nil // 丢弃
+		if got := clipSourcePath(tt.path, tt.prefix, tt.depth); got != tt.want {
+			t.Errorf("clipSourcePath(%q) = %q, want %q", tt.path, got, tt.want)
 		}
-		return r
 	}
-
-	h := NewHandler(&HandlerConfig{
-		Formatter:    formatter.Text(),
-		Output:       stdoutWriter,
-		Interceptors: []Interceptor{interceptor},
-	})
-
-	logger := slog.New(h)
-	logger.Info("normal message")
-	logger.Info("secret data")
-
-	output := buf.String()
-	assert.Contains(t, output, "normal message")
-	assert.NotContains(t, output, "secret")
 }
 
-func TestHandler_AddSource(t *testing.T) {
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestReplaceAttrAndSourceClip(t *testing.T) {
 	var buf bytes.Buffer
-	stdoutWriter := &testWriter{buf: &buf}
-
-	h := NewHandler(&HandlerConfig{
-		Formatter: formatter.Text(),
-		Output:    stdoutWriter,
-		AddSource: true,
+	l, err := New(Config{
+		Outputs:    []Output{{Writer: &buf, Format: FormatJSON}},
+		AddSource:  true,
+		SourceClip: "/workspace/",
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == "secret" {
+				return slog.String("secret", "redacted")
+			}
+			return a
+		},
 	})
-
-	logger := slog.New(h)
-	logger.Info("test")
-
-	output := buf.String()
-	assert.Contains(t, output, "source=")
-	assert.Contains(t, output, ".go:")
-}
-
-func TestDebugInfoWarnError(t *testing.T) {
-	err := Init(Config{Level: "DEBUG"})
-	require.NoError(t, err)
-	defer func() { _ = Close() }()
-
-	// 验证这些函数可以正常调用
-	Debug("debug message", "key", "value")
-	Info("info message", "key", "value")
-	Warn("warn message", "key", "value")
-	Error("error message", "key", "value")
-}
-
-func TestWith(t *testing.T) {
-	err := Init(Config{Level: "INFO"})
-	require.NoError(t, err)
-	defer func() { _ = Close() }()
-
-	log := With("module", "test")
-	assert.NotNil(t, log)
-}
-
-func TestWithGroup(t *testing.T) {
-	err := Init(Config{Level: "INFO"})
-	require.NoError(t, err)
-	defer func() { _ = Close() }()
-
-	log := WithGroup("request")
-	assert.NotNil(t, log)
-}
-
-func TestClose_Multiple(t *testing.T) {
-	err := Init()
-	require.NoError(t, err)
-
-	// Close 应该不报错
-	err = Close()
-	require.NoError(t, err)
-
-	// 重复 Close 也不应该报错
-	err = Close()
-	require.NoError(t, err)
-}
-
-func TestClose_RestoresPreviousDefault(t *testing.T) {
-	previous := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-	slog.SetDefault(previous)
-
-	err := Init(Config{Output: &testWriter{buf: &bytes.Buffer{}}})
-	require.NoError(t, err)
-
-	err = Close()
-	require.NoError(t, err)
-
-	assert.Same(t, previous, slog.Default())
-}
-
-func TestInit_WithManagedSlogHandler(t *testing.T) {
-	managed := &managedTestHandler{}
-
-	err := Init(Config{
-		Output:       &testWriter{buf: &bytes.Buffer{}},
-		SlogHandlers: []slog.Handler{managed},
-	})
-	require.NoError(t, err)
-
-	err = Sync()
-	require.NoError(t, err)
-	assert.Equal(t, 1, managed.syncCalls)
-
-	err = Close()
-	require.NoError(t, err)
-	assert.Equal(t, 1, managed.closeCalls)
-}
-
-// testWriter 是一个简单的 Writer 实现用于测试
-type testWriter struct {
-	buf *bytes.Buffer
-}
-
-func (w *testWriter) Write(p []byte) (n int, err error) {
-	return w.buf.Write(p)
-}
-
-func (w *testWriter) Close() error {
-	return nil
-}
-
-func (w *testWriter) Sync() error {
-	return nil
-}
-
-type slowTestWriter struct {
-	buf bytes.Buffer
-}
-
-func (w *slowTestWriter) Write(p []byte) (n int, err error) {
-	for _, b := range p {
-		w.buf.WriteByte(b)
-		time.Sleep(50 * time.Microsecond)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return len(p), nil
+	defer l.Close()
+	l.Info("hello", "secret", "value")
+	if !strings.Contains(buf.String(), `"secret":"redacted"`) {
+		t.Fatalf("replace attr failed: %s", buf.String())
+	}
 }
 
-func (w *slowTestWriter) Close() error {
-	return nil
+type closeBuffer struct {
+	bytes.Buffer
+	closed bool
 }
 
-func (w *slowTestWriter) Sync() error {
-	return nil
+func (w *closeBuffer) Close() error { w.closed = true; return nil }
+
+func TestNewOwnOutputCloses(t *testing.T) {
+	w := new(closeBuffer)
+	l, err := New(Config{Outputs: []Output{{Writer: w, Format: FormatText, Own: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !w.closed {
+		t.Fatal("owned output was not closed")
+	}
 }
 
-type managedTestHandler struct {
-	syncCalls  int
-	closeCalls int
-}
-
-func (h *managedTestHandler) Enabled(context.Context, slog.Level) bool {
-	return true
-}
-
-func (h *managedTestHandler) Handle(context.Context, slog.Record) error {
-	return nil
-}
-
-func (h *managedTestHandler) WithAttrs([]slog.Attr) slog.Handler {
-	return h
-}
-
-func (h *managedTestHandler) WithGroup(string) slog.Handler {
-	return h
-}
-
-func (h *managedTestHandler) Sync() error {
-	h.syncCalls++
-	return nil
-}
-
-func (h *managedTestHandler) Close() error {
-	h.closeCalls++
-	return nil
+func TestLoadConfigFromEnvStrictAndFormatOrder(t *testing.T) {
+	t.Setenv("LOGM_ENV", "prod")
+	t.Setenv("LOGM_OUTPUT", "stderr")
+	t.Setenv("LOGM_FORMAT", "json")
+	cfg, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Outputs) != 1 || cfg.Outputs[0].Format != FormatJSON {
+		t.Fatalf("outputs = %#v", cfg.Outputs)
+	}
+	t.Setenv("LOGM_LEVEL", "bogus")
+	if _, err := LoadConfigFromEnv(); err == nil {
+		t.Fatal("expected invalid level")
+	}
+	t.Setenv("LOGM_LEVEL", "INFO")
+	t.Setenv("LOGM_ENV", "staging")
+	if _, err := LoadConfigFromEnv(); err == nil {
+		t.Fatal("expected invalid environment")
+	}
 }

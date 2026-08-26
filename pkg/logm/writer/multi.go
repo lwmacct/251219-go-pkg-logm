@@ -1,59 +1,91 @@
 package writer
 
-// MultiWriter 多目标 Writer。
-//
-// 将日志同时写入多个目标。
+import (
+	"errors"
+	"io"
+	"sync"
+)
+
+// MultiWriter fans each record out to every sink. All sinks are attempted even
+// when one fails; errors are joined so a transient secondary sink cannot hide
+// the primary failure.
 type MultiWriter struct {
-	writers []Writer
+	mu      sync.RWMutex
+	writers []io.Writer
 }
 
-// Multi 创建多目标 Writer。
-func Multi(writers ...Writer) *MultiWriter {
-	return &MultiWriter{writers: writers}
+func Multi(writers ...io.Writer) *MultiWriter {
+	return &MultiWriter{writers: append([]io.Writer(nil), writers...)}
 }
 
-// Write 实现 io.Writer。
-//
-// 写入所有目标，忽略单个目标的写入错误。
-func (m *MultiWriter) Write(p []byte) (n int, err error) {
-	for _, w := range m.writers {
-		_, _ = w.Write(p)
+func (m *MultiWriter) Write(p []byte) (int, error) {
+	m.mu.RLock()
+	writers := append([]io.Writer(nil), m.writers...)
+	m.mu.RUnlock()
+	if len(writers) == 0 {
+		return 0, io.ErrClosedPipe
+	}
+	minN := len(p)
+	var errs []error
+	for _, w := range writers {
+		n, err := w.Write(p)
+		if n < minN {
+			minN = n
+		}
+		if err == nil && n != len(p) {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) != 0 {
+		return minN, errors.Join(errs...)
 	}
 	return len(p), nil
 }
 
-// Close 实现 io.Closer。
-//
-// 关闭所有目标。
 func (m *MultiWriter) Close() error {
-	var firstErr error
-	for _, w := range m.writers {
-		if err := w.Close(); err != nil && firstErr == nil {
-			firstErr = err
+	m.mu.RLock()
+	writers := append([]io.Writer(nil), m.writers...)
+	m.mu.RUnlock()
+	var errs []error
+	for _, w := range writers {
+		if c, ok := w.(io.Closer); ok {
+			if err := c.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
-	return firstErr
+	return errors.Join(errs...)
 }
 
-// Sync 实现 Writer.Sync。
-//
-// 刷新所有目标。
 func (m *MultiWriter) Sync() error {
-	var firstErr error
-	for _, w := range m.writers {
-		if err := w.Sync(); err != nil && firstErr == nil {
-			firstErr = err
+	m.mu.RLock()
+	writers := append([]io.Writer(nil), m.writers...)
+	m.mu.RUnlock()
+	var errs []error
+	for _, w := range writers {
+		if s, ok := w.(Syncer); ok {
+			if err := s.Sync(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
-	return firstErr
+	return errors.Join(errs...)
 }
 
-// Add 添加 Writer。
-func (m *MultiWriter) Add(w Writer) {
+func (m *MultiWriter) Add(w io.Writer) {
+	if w == nil {
+		return
+	}
+	m.mu.Lock()
 	m.writers = append(m.writers, w)
+	m.mu.Unlock()
 }
 
-// Writers 返回当前聚合的输出目标副本。
-func (m *MultiWriter) Writers() []Writer {
-	return append([]Writer(nil), m.writers...)
+func (m *MultiWriter) Writers() []io.Writer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]io.Writer(nil), m.writers...)
 }
