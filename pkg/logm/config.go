@@ -113,6 +113,21 @@ func resolveLeveler(leveler slog.Leveler, fallback *slog.LevelVar) slog.Leveler 
 	return v
 }
 
+type nonClosingWriter struct {
+	target io.Writer
+}
+
+func (w nonClosingWriter) Write(p []byte) (int, error) {
+	return w.target.Write(p)
+}
+
+func (w nonClosingWriter) Sync() error {
+	if s, ok := w.target.(writer.Syncer); ok {
+		return s.Sync()
+	}
+	return nil
+}
+
 func makeOutput(o Output) (io.Writer, []managed, []syncer, error) {
 	if o.Async.Overflow > writer.OverflowFail {
 		return nil, nil, nil, fmt.Errorf("logm: invalid async overflow policy %d", o.Async.Overflow)
@@ -132,6 +147,9 @@ func makeOutput(o Output) (io.Writer, []managed, []syncer, error) {
 	var owned []managed
 	var syncers []syncer
 	if o.Async.Capacity != 0 || o.Async.Overflow != writer.OverflowBlock {
+		if !o.Own {
+			target = nonClosingWriter{target: target}
+		}
 		aw := writer.NewAsync(target, o.Async)
 		target = aw
 		owned = append(owned, aw)

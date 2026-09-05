@@ -47,3 +47,14 @@ func PresetAuto() Config {
 	}
 	return PresetProd()
 }
+
+// PresetCLI returns the automatic development or production format while
+// reserving stdout for a CLI command's machine-readable results.
+func PresetCLI() Config {
+	cfg := PresetAuto()
+	for i := range cfg.Outputs {
+		cfg.Outputs[i].Name = "stderr"
+		cfg.Outputs[i].Writer = writer.Stderr()
+	}
+	return cfg
+}

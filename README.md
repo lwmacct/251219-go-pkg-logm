@@ -23,6 +23,9 @@ func main() {
 `logm.New` 返回拥有 sink 生命周期的 `*logm.Logger`，使用完毕应调用
 `Close`；它嵌入 `*slog.Logger`，因此完整兼容标准日志 API。
 
+对于 stdout 需要承载 JSON、CSV 或其他机器可读结果的 CLI 命令，使用
+`logm.PresetCLI()`，日志会写入 stderr，且保留自动选择的开发/生产格式。
+
 ## 配置
 
 ```go

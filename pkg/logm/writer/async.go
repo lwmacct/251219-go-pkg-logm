@@ -36,8 +36,8 @@ type asyncRequest struct {
 	close chan error
 }
 
-// AsyncWriter is a bounded, lifecycle-aware asynchronous io.Writer. Write
-// errors are retained and returned by Sync, Close, and Err.
+// AsyncWriter is a bounded, lifecycle-aware asynchronous io.Writer. The first
+// underlying write error is retained and returned by Sync, Close, and Err.
 type AsyncWriter struct {
 	writer   io.Writer
 	requests chan asyncRequest
@@ -83,12 +83,15 @@ func (a *AsyncWriter) run() {
 			if c, ok := a.writer.(io.Closer); ok {
 				if closeErr := c.Close(); err == nil {
 					err = closeErr
-				} else if closeErr != nil {
+				} else if closeErr != nil && !errors.Is(err, closeErr) {
 					err = errors.Join(err, closeErr)
 				}
 			}
 			a.errMu.Lock()
-			a.closeErr = errors.Join(err, a.writeErr)
+			if err == nil {
+				err = a.writeErr
+			}
+			a.closeErr = err
 			closeErr := a.closeErr
 			a.errMu.Unlock()
 			req.close <- closeErr
@@ -98,36 +101,33 @@ func (a *AsyncWriter) run() {
 			if err == nil && n != len(req.data) {
 				err = io.ErrShortWrite
 			}
-			if err != nil {
-				a.errMu.Lock()
-				if a.writeErr == nil {
-					a.writeErr = err
-				} else {
-					a.writeErr = errors.Join(a.writeErr, err)
-				}
-				a.errMu.Unlock()
-			}
+			a.recordWriteError(err)
 		}
 	}
 }
 
 func (a *AsyncWriter) flushUnderlying() error {
 	if s, ok := a.writer.(Syncer); ok {
-		if err := s.Sync(); err != nil {
-			a.errMu.Lock()
-			if a.writeErr == nil {
-				a.writeErr = err
-			} else {
-				a.writeErr = errors.Join(a.writeErr, err)
-			}
-			a.errMu.Unlock()
-			return err
-		}
+		a.recordWriteError(s.Sync())
+	}
+	return a.writeError()
+}
+
+func (a *AsyncWriter) recordWriteError(err error) {
+	if err == nil {
+		return
 	}
 	a.errMu.Lock()
-	err := a.writeErr
+	if a.writeErr == nil {
+		a.writeErr = err
+	}
 	a.errMu.Unlock()
-	return err
+}
+
+func (a *AsyncWriter) writeError() error {
+	a.errMu.Lock()
+	defer a.errMu.Unlock()
+	return a.writeErr
 }
 
 func (a *AsyncWriter) Write(p []byte) (int, error) {
@@ -189,10 +189,7 @@ func (a *AsyncWriter) Close() error {
 	if a.closed {
 		a.mu.Unlock()
 		a.wg.Wait()
-		a.errMu.Lock()
-		err := a.closeErr
-		a.errMu.Unlock()
-		return err
+		return a.Err()
 	}
 	a.closed = true
 	done := make(chan error, 1)
@@ -207,7 +204,10 @@ func (a *AsyncWriter) Sync() error {
 	a.mu.Lock()
 	if a.closed {
 		a.errMu.Lock()
-		err := errors.Join(a.writeErr, a.closeErr)
+		err := a.closeErr
+		if err == nil {
+			err = a.writeErr
+		}
 		a.errMu.Unlock()
 		a.mu.Unlock()
 		return err
@@ -220,12 +220,11 @@ func (a *AsyncWriter) Sync() error {
 
 func (a *AsyncWriter) Err() error {
 	a.errMu.Lock()
-	writeErr := a.writeErr
-	a.errMu.Unlock()
-	a.errMu.Lock()
-	closeErr := a.closeErr
-	a.errMu.Unlock()
-	return errors.Join(writeErr, closeErr)
+	defer a.errMu.Unlock()
+	if a.closeErr != nil {
+		return a.closeErr
+	}
+	return a.writeErr
 }
 
 func (a *AsyncWriter) Dropped() uint64 { return a.dropped.Load() }

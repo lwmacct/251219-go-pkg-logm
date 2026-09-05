@@ -44,13 +44,19 @@ func Init(configs ...Config) error {
 	// Concrete preset levels initialize the process-wide LevelVar so SetLevel
 	// continues to affect the installed logger. Callers that provide their own
 	// Leveler retain full control over its dynamic behavior.
+	var configuredLevel slog.Level
+	hasConfiguredLevel := false
 	if level, ok := cfg.Level.(slog.Level); ok {
-		globalLevelVar.Set(level)
+		configuredLevel = level
+		hasConfiguredLevel = true
 		cfg.Level = globalLevelVar
 	}
 	built, err := buildLogger(cfg, globalLevelVar)
 	if err != nil {
 		return err
+	}
+	if hasConfiguredLevel {
+		globalLevelVar.Set(configuredLevel)
 	}
 	logger := &Logger{Logger: slog.New(built.handler), managed: built.managed, syncers: built.syncers}
 

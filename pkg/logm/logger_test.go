@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm/writer"
 )
 
 func TestNewJSONUsesStandardSemantics(t *testing.T) {
@@ -153,6 +155,38 @@ func TestSetLevelAffectsGlobalPreset(t *testing.T) {
 	slog.Debug("visible")
 	if !strings.Contains(buf.String(), "visible") {
 		t.Fatal("SetLevel did not update global handler")
+	}
+}
+
+func TestInitFailureDoesNotChangeExistingLevel(t *testing.T) {
+	previousDefault := slog.Default()
+	previousLevel := GetLevel()
+	_ = Close()
+	t.Cleanup(func() {
+		_ = Close()
+		slog.SetDefault(previousDefault)
+		SetLevelValue(previousLevel)
+	})
+
+	var buf bytes.Buffer
+	if err := Init(Config{
+		Level:   slog.LevelInfo,
+		Outputs: []Output{{Writer: &buf, Format: FormatText}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Init(Config{
+		Level:   slog.LevelDebug,
+		Outputs: []Output{{Writer: &buf, Format: Format("invalid")}},
+	}); err == nil {
+		t.Fatal("expected invalid format error")
+	}
+	if got := GetLevel(); got != slog.LevelInfo {
+		t.Fatalf("global level after failed init = %v, want INFO", got)
+	}
+	slog.Debug("hidden")
+	if buf.Len() != 0 {
+		t.Fatalf("failed init changed existing logger output = %q", buf.String())
 	}
 }
 
@@ -312,6 +346,51 @@ func TestNewOwnOutputCloses(t *testing.T) {
 	}
 	if !w.closed {
 		t.Fatal("owned output was not closed")
+	}
+}
+
+func TestAsyncOutputHonorsOwn(t *testing.T) {
+	tests := []struct {
+		name string
+		own  bool
+		want bool
+	}{
+		{name: "borrowed", own: false, want: false},
+		{name: "owned", own: true, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := new(closeBuffer)
+			l, err := New(Config{
+				Outputs: []Output{{
+					Writer: w,
+					Format: FormatText,
+					Async:  writer.AsyncConfig{Capacity: 1},
+					Own:    tt.own,
+				}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			l.Info("hello")
+			if err := l.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if w.closed != tt.want {
+				t.Fatalf("closed = %v, want %v", w.closed, tt.want)
+			}
+		})
+	}
+}
+
+func TestPresetCLIUsesStderr(t *testing.T) {
+	t.Setenv("VSCODE_INJECTION", "0")
+	cfg := PresetCLI()
+	if len(cfg.Outputs) != 1 {
+		t.Fatalf("outputs = %#v", cfg.Outputs)
+	}
+	if cfg.Outputs[0].Name != "stderr" {
+		t.Fatalf("output name = %q, want stderr", cfg.Outputs[0].Name)
 	}
 }
 

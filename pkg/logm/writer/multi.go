@@ -15,7 +15,13 @@ type MultiWriter struct {
 }
 
 func Multi(writers ...io.Writer) *MultiWriter {
-	return &MultiWriter{writers: append([]io.Writer(nil), writers...)}
+	filtered := make([]io.Writer, 0, len(writers))
+	for _, w := range writers {
+		if w != nil {
+			filtered = append(filtered, w)
+		}
+	}
+	return &MultiWriter{writers: filtered}
 }
 
 func (m *MultiWriter) Write(p []byte) (int, error) {

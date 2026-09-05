@@ -3,6 +3,7 @@ package writer
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"runtime/pprof"
 	"sync"
@@ -37,6 +38,17 @@ func TestMultiPropagatesErrors(t *testing.T) {
 	n, err := m.Write([]byte("x"))
 	if n != 0 || !errors.Is(err, want) {
 		t.Fatalf("Write() = %d, %v", n, err)
+	}
+}
+
+func TestMultiIgnoresNilWriters(t *testing.T) {
+	var buf bytes.Buffer
+	m := Multi(nil, &buf)
+	if _, err := m.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if got := buf.String(); got != "x" {
+		t.Fatalf("buffer = %q, want x", got)
 	}
 }
 
@@ -76,6 +88,19 @@ func TestAsyncWriteError(t *testing.T) {
 	}
 	if err := a.Close(); !errors.Is(err, want) {
 		t.Fatalf("Close() = %v", err)
+	}
+}
+
+func TestAsyncRetainsOnlyFirstWriteError(t *testing.T) {
+	a := NewAsync(new(sequenceErrorWriter), AsyncConfig{Capacity: 8})
+	for i := 0; i < 8; i++ {
+		if _, err := a.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := a.Close()
+	if err == nil || err.Error() != "write-1" {
+		t.Fatalf("Close() = %v, want first write error", err)
 	}
 }
 
@@ -127,6 +152,15 @@ type blockingWriter struct{ release chan struct{} }
 func (w blockingWriter) Write(p []byte) (int, error) {
 	<-w.release
 	return len(p), nil
+}
+
+type sequenceErrorWriter struct {
+	next int
+}
+
+func (w *sequenceErrorWriter) Write([]byte) (int, error) {
+	w.next++
+	return 0, fmt.Errorf("write-%d", w.next)
 }
 
 var _ io.Writer = (*AsyncWriter)(nil)
